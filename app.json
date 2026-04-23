@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "CamTok",
+    "slug": "camtokmobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "camtok",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.camtok.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "CamTok uses your location while you stream so viewers can follow your drive on the map.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "CamTok uses your location while you stream so viewers can follow your drive on the map.",
+        "NSCameraUsageDescription": "CamTok uses your camera to broadcast your live stream.",
+        "NSMicrophoneUsageDescription": "CamTok uses your microphone to broadcast audio with your stream."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.camtok.mobile",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:3000",
+      "supabaseUrl": "",
+      "supabaseAnonKey": ""
+    }
+  }
+}
