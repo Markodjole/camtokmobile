@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "scheme": "camtok",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "assetBundlePatterns": [
       "**/*"
     ],
