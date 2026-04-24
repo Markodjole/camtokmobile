@@ -7,7 +7,9 @@
     "scheme": "camtok",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.camtok.mobile",
@@ -42,7 +44,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
