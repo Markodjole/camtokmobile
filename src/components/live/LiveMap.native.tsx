@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -24,6 +24,7 @@ type Props = {
 // Camera animation duration — short enough to keep up with ~1 Hz GPS.
 const CAMERA_ANIM_MS = 450;
 const MARKER_PREDICT_MAX_MS = 1200;
+const NAV_ZOOM_DELTA = 0.0012;
 
 /**
  * Native live map.
@@ -45,6 +46,7 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
     lngPerMs: 0,
   });
   const lastFrameTsRef = useRef<number | null>(null);
+  const lastCameraTsRef = useRef<number>(0);
   const lastRawTsRef = useRef<number>(0);
   const targetRef = useRef<RoutePoint | null>(null);
 
@@ -61,14 +63,16 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Imperatively smooth-animate the camera on every new GPS point
+  // Jump camera to the first known point quickly.
   useEffect(() => {
     if (!last || !followDriver) return;
     mapRef.current?.animateCamera(
       {
         center: { latitude: last.lat, longitude: last.lng },
+        heading: last.heading ?? 0,
+        pitch: 50,
       },
-      { duration: CAMERA_ANIM_MS },
+      { duration: CAMERA_ANIM_MS / 2 },
     );
   }, [last, followDriver]);
 
@@ -117,9 +121,10 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           sinceRaw < MARKER_PREDICT_MAX_MS
             ? 1 - sinceRaw / MARKER_PREDICT_MAX_MS
             : 0;
-
-        const predictedLat = target.lat + velocityRef.current.latPerMs * dt * predictFactor;
-        const predictedLng = target.lng + velocityRef.current.lngPerMs * dt * predictFactor;
+        const predictedLat =
+          target.lat + velocityRef.current.latPerMs * sinceRaw * predictFactor;
+        const predictedLng =
+          target.lng + velocityRef.current.lngPerMs * sinceRaw * predictFactor;
 
         // Critically damped blend toward predicted point (fake smooth driving)
         const blend = 0.18;
@@ -131,6 +136,19 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         };
         smoothedRef.current = next;
         setSmoothedLast(next);
+
+        // Navigation mode camera: follow smoothed position, keep driving direction up.
+        if (followDriver && now - lastCameraTsRef.current > 80) {
+          const lookHeading = next.heading ?? target.heading ?? 0;
+          mapRef.current?.setCamera({
+            center: { latitude: next.lat, longitude: next.lng },
+            heading: lookHeading,
+            pitch: 50,
+            altitude: 250,
+            zoom: 18,
+          });
+          lastCameraTsRef.current = now;
+        }
       }
 
       markerRafRef.current = requestAnimationFrame(tick);
@@ -163,8 +181,8 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
   const region: Region = {
     latitude: last?.lat ?? 44.0,
     longitude: last?.lng ?? 20.9,
-    latitudeDelta: last ? 0.005 : 0.5,
-    longitudeDelta: last ? 0.005 : 0.5,
+    latitudeDelta: last ? NAV_ZOOM_DELTA : 0.5,
+    longitudeDelta: last ? NAV_ZOOM_DELTA : 0.5,
   };
 
   return (
@@ -247,24 +265,29 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           // Visual calibration: custom marker content renders ~1 px right on some devices.
           centerOffset={{ x: -1, y: 0 }}
           zIndex={999}
-          tracksViewChanges={false}
+          tracksViewChanges
         >
-          {/* Red driver dot */}
+          {/* Real car icon marker */}
           <View
             style={{
-              width: 18,
-              height: 18,
-              borderRadius: 9,
-              borderWidth: 2.5,
-              borderColor: "white",
-              backgroundColor: "#ef4444",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.55,
-              shadowRadius: 3,
-              elevation: 7,
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              backgroundColor: "rgba(0,0,0,0.18)",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-          />
+          >
+            <Text
+              style={{
+                fontSize: 24,
+                lineHeight: 24,
+                textAlign: "center",
+              }}
+            >
+              🚗
+            </Text>
+          </View>
         </Marker>
       ) : null}
     </MapView>

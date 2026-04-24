@@ -120,13 +120,13 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
       ).addTo(map);
     }
 
-    // Driver red dot — move + re-icon existing marker, don't recreate it
+    // Driver car icon — move + re-icon existing marker, don't recreate it
     if (last) {
       const makeDotIcon = () =>
         L.divIcon({
           className: "",
-          html: `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.9)) drop-shadow(0 0 6px rgba(0,0,0,.6))">
-            <div style="width:18px;height:18px;border-radius:9999px;border:2.5px solid white;background:#ef4444"></div>
+          html: `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="width:36px;height:36px;border-radius:9999px;background:rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;font-size:24px;line-height:1">🚗</div>
           </div>`,
           iconSize: [44, 44],
           // Visual calibration: Leaflet marker div appears ~1 px right.
