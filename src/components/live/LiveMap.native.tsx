@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -241,54 +241,17 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
               latitude: driverRoute.turnPoint.lat,
               longitude: driverRoute.turnPoint.lng,
             }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
-          >
-            <View
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: 8,
-                borderWidth: 2,
-                borderColor: "white",
-                backgroundColor: "#6366f1",
-              }}
-            />
-          </Marker>
+            pinColor="#6366f1"
+          />
         </>
       ) : null}
 
       {smoothedLast ? (
         <Marker
           coordinate={{ latitude: smoothedLast.lat, longitude: smoothedLast.lng }}
-          anchor={{ x: 0.5, y: 0.5 }}
-          // Visual calibration: custom marker content renders ~1 px right on some devices.
-          centerOffset={{ x: -1, y: 0 }}
+          pinColor="#ef4444"
           zIndex={999}
-          tracksViewChanges
-        >
-          {/* Real car icon marker */}
-          <View
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              backgroundColor: "rgba(0,0,0,0.18)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 24,
-                lineHeight: 24,
-                textAlign: "center",
-              }}
-            >
-              🚗
-            </Text>
-          </View>
-        </Marker>
+        />
       ) : null}
     </MapView>
   );
