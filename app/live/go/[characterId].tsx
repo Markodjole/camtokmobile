@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { LiveMap } from "@/components/live/LiveMap";
+import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
 import { apiFetch } from "@/lib/api";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
@@ -172,11 +173,19 @@ export default function GoLiveControlScreen() {
           </>
         ) : (
           <>
+            <View className="h-[56vh] min-h-[320px] overflow-hidden rounded-3xl border border-border">
+              <BroadcasterCameraPreview
+                liveSessionId={sessionId}
+                facing="front"
+              />
+            </View>
+
             <Card>
               <CardTitle>Broadcasting</CardTitle>
               <CardDescription>
-                GPS + heartbeat are streaming. Add a dev client with
-                `react-native-webrtc` to send video.
+                Camera + GPS + heartbeat are live. On web we also push the
+                video over WebRTC; Expo Go shows only the local preview
+                until you attach a dev client with `react-native-webrtc`.
               </CardDescription>
               <View className="mt-3 gap-1">
                 <Text className="text-xs text-muted-foreground">
@@ -199,7 +208,7 @@ export default function GoLiveControlScreen() {
               </View>
             </Card>
 
-            <View className="h-64 overflow-hidden rounded-3xl border border-border">
+            <View className="h-48 overflow-hidden rounded-3xl border border-border">
               <LiveMap routePoints={routePoints} />
             </View>
 

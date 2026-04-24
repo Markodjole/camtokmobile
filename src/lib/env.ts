@@ -37,4 +37,18 @@ export const env = {
     "EXPO_PUBLIC_SUPABASE_ANON_KEY",
     process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? fromExtra("supabaseAnonKey"),
   ),
+  turnUrl:
+    process.env.EXPO_PUBLIC_TURN_URL ??
+    fromExtra("turnUrl") ??
+    undefined,
+  turnUsername:
+    process.env.EXPO_PUBLIC_TURN_USERNAME ??
+    fromExtra("turnUsername") ??
+    undefined,
+  turnCredential:
+    process.env.EXPO_PUBLIC_TURN_CREDENTIAL ??
+    fromExtra("turnCredential") ??
+    undefined,
+  iceRelayOnly:
+    (process.env.EXPO_PUBLIC_ICE_RELAY_ONLY ?? fromExtra("iceRelayOnly")) === "1",
 };

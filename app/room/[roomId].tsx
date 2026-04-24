@@ -9,7 +9,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
-import { LiveVideoPlaceholder } from "@/components/live/LiveVideoPlaceholder";
+import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
 import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
@@ -43,9 +43,7 @@ export default function RoomScreen() {
   const placeBet = usePlaceBet(roomId ?? null);
 
   const [betAmount, setBetAmount] = useState(10);
-  // Default to map view — video is a placeholder until a WebRTC dev client
-  // is attached; the map is always useful.
-  const [mapExpanded, setMapExpanded] = useState(true);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
 
@@ -118,10 +116,7 @@ export default function RoomScreen() {
             }
           />
         ) : (
-          <LiveVideoPlaceholder
-            characterName={data.characterName}
-            statusText={data.statusText}
-          />
+          <LiveVideoPlayer liveSessionId={data.liveSessionId ?? null} />
         )}
       </View>
 
@@ -187,10 +182,7 @@ export default function RoomScreen() {
       {/* PiP corner */}
       <View className="absolute left-3 top-24 h-40 w-40 overflow-hidden rounded-2xl border border-white/25 bg-black/60 shadow-xl">
         {mapExpanded ? (
-          <LiveVideoPlaceholder
-            characterName={data.characterName}
-            statusText={null}
-          />
+          <LiveVideoPlayer liveSessionId={data.liveSessionId ?? null} />
         ) : (
           <LiveMap
             routePoints={routePoints.data ?? data.routePoints ?? []}
