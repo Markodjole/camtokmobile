@@ -1,5 +1,11 @@
 import React from "react";
-import { ActivityIndicator, Pressable, Text, type PressableProps } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  Text,
+  type PressableProps,
+} from "react-native";
+import { blurOnWeb } from "@/lib/blurOnWeb";
 
 type Variant = "primary" | "secondary" | "ghost" | "destructive";
 
@@ -25,9 +31,11 @@ export function Button({
   loading,
   fullWidth,
   disabled,
+  onPress,
   ...rest
 }: ButtonProps) {
   const v = variants[variant];
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -35,6 +43,7 @@ export function Button({
       className={`${base} ${sizes} ${v.box} ${fullWidth ? "w-full" : ""} ${
         disabled || loading ? "opacity-50" : ""
       }`}
+      onPress={blurOnWeb(onPress)}
       {...rest}
     >
       {loading ? (

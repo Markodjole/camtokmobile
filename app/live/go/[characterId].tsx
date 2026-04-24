@@ -8,6 +8,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { LiveMap } from "@/components/live/LiveMap";
 import { apiFetch } from "@/lib/api";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
+import { blurOnWeb } from "@/lib/blurOnWeb";
 import type { TransportMode } from "@/types/live";
 
 const MODES: { id: TransportMode; label: string; emoji: string }[] = [
@@ -99,7 +100,7 @@ export default function GoLiveControlScreen() {
 
       <View className="flex-row items-center gap-3 px-4 pt-2">
         <Pressable
-          onPress={() => router.back()}
+          onPress={blurOnWeb(() => router.back())}
           className="h-9 w-9 items-center justify-center rounded-full bg-muted"
         >
           <Text className="text-white">‹</Text>

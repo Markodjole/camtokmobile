@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLiveFeed } from "@/hooks/useLiveFeed";
 import { useCountdown } from "@/hooks/useCountdown";
 import { transportEmoji } from "@/components/live/TransportModeIcon";
+import { blurOnWeb } from "@/lib/blurOnWeb";
 import type { LiveFeedRow, LiveMarketSummary } from "@/types/live";
 
 /**
@@ -70,7 +71,7 @@ export default function LiveTab() {
             Check back in a minute, or go live yourself.
           </Text>
           <Pressable
-            onPress={() => router.push("/live/go")}
+            onPress={blurOnWeb(() => router.push("/live/go"))}
             className="mt-6 rounded-2xl bg-primary px-5 py-3 active:bg-primary/80"
           >
             <Text className="text-sm font-semibold text-white">
@@ -102,7 +103,10 @@ export default function LiveTab() {
         }
         renderItem={({ item }) => (
           <View style={{ height }}>
-            <LiveSnapSlide row={item} onOpen={() => router.push(`/room/${item.roomId}`)} />
+            <LiveSnapSlide
+              row={item}
+              onOpen={() => router.push(`/room/${item.roomId}`)}
+            />
           </View>
         )}
       />
@@ -119,7 +123,7 @@ function LiveSnapSlide({
 }) {
   return (
     <Pressable
-      onPress={onOpen}
+      onPress={blurOnWeb(onOpen)}
       className="relative flex-1 bg-black"
       accessibilityLabel={`Open live room for ${row.characterName}`}
     >

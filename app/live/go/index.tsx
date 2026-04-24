@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { Stack, useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
+import { blurOnWeb } from "@/lib/blurOnWeb";
 
 /**
  * Twin of `apps/web/src/app/live/go/page.tsx`: lets the owner pick a
@@ -18,7 +19,7 @@ export default function GoLivePickerScreen() {
 
       <View className="mb-2 flex-row items-center gap-3">
         <Pressable
-          onPress={() => router.back()}
+          onPress={blurOnWeb(() => router.back())}
           className="h-9 w-9 items-center justify-center rounded-full bg-muted"
         >
           <Text className="text-white">‹</Text>
@@ -44,7 +45,7 @@ export default function GoLivePickerScreen() {
           {(data ?? []).map((c) => (
             <Pressable
               key={c.id}
-              onPress={() => router.push(`/live/go/${c.id}`)}
+              onPress={blurOnWeb(() => router.push(`/live/go/${c.id}`))}
               className="flex-row items-center justify-between rounded-2xl border border-border bg-muted p-3 active:opacity-80"
             >
               <Text className="text-white">{c.name}</Text>

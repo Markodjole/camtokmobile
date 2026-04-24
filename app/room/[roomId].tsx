@@ -20,6 +20,7 @@ import {
   usePlaceBet,
   useRoutePoints,
 } from "@/hooks/useLiveRoom";
+import { blurOnWeb } from "@/lib/blurOnWeb";
 
 /**
  * Mobile twin of `apps/web/src/components/live/LiveRoomScreen.tsx`.
@@ -84,7 +85,7 @@ export default function RoomScreen() {
           This live room is no longer active.
         </Text>
         <Pressable
-          onPress={() => router.back()}
+          onPress={blurOnWeb(() => router.back())}
           className="mt-4 rounded-2xl bg-primary px-5 py-2"
         >
           <Text className="text-sm font-semibold text-white">Back</Text>
@@ -126,7 +127,7 @@ export default function RoomScreen() {
       <SafeAreaView edges={["top"]} className="absolute inset-x-0 top-0 z-40">
         <View className="flex-row items-center gap-2 px-4 py-2">
           <Pressable
-            onPress={() => router.back()}
+            onPress={blurOnWeb(() => router.back())}
             accessibilityLabel="Close live room"
             className="h-9 w-9 items-center justify-center rounded-full bg-black/60"
           >
