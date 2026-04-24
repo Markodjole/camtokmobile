@@ -244,7 +244,8 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         <Marker
           coordinate={{ latitude: smoothedLast.lat, longitude: smoothedLast.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
-          centerOffset={{ x: 0, y: 0 }}
+          // Visual calibration: custom marker content renders ~1 px right on some devices.
+          centerOffset={{ x: -1, y: 0 }}
           zIndex={999}
           tracksViewChanges={false}
         >

@@ -129,7 +129,8 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
             <div style="width:18px;height:18px;border-radius:9999px;border:2.5px solid white;background:#ef4444"></div>
           </div>`,
           iconSize: [44, 44],
-          iconAnchor: [22, 22],
+          // Visual calibration: Leaflet marker div appears ~1 px right.
+          iconAnchor: [21, 22],
         });
 
       if (markerRef.current) {
