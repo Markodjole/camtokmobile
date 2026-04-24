@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   Text,
   View,
@@ -43,7 +44,7 @@ export default function RoomScreen() {
   const placeBet = usePlaceBet(roomId ?? null);
 
   const [betAmount, setBetAmount] = useState(10);
-  const [mapExpanded, setMapExpanded] = useState(false);
+  const [mapExpanded, setMapExpanded] = useState(Platform.OS !== "web");
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
 

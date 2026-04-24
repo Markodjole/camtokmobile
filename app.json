@@ -29,7 +29,9 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "CAMERA",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "INTERNET"
       ]
     },
     "web": {
@@ -38,14 +40,24 @@
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
       "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CamTok uses your camera to broadcast your live stream.",
+          "microphonePermission": "CamTok uses your microphone to broadcast audio with your stream.",
+          "recordAudioAndroid": true
+        }
+      ],
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "react-native-webrtc"
     ],
     "experiments": {
       "typedRoutes": true
