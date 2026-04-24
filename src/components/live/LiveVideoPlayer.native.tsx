@@ -90,7 +90,8 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
     ? (activeStream as unknown as { toURL: () => string }).toURL()
     : null;
 
-  const connecting = !localStream && liveSessionId && !remoteStream && !error;
+  // In Expo Go (no rtc) we never connect, so never show the spinner
+  const connecting = !!rtc && !localStream && liveSessionId && !remoteStream && !error;
 
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
@@ -145,7 +146,8 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
         </View>
       ) : null}
 
-      {!liveSessionId && !localStream ? (
+      {/* When no stream is active show a quiet indicator */}
+      {!streamURL && !connecting ? (
         <View
           style={{
             position: "absolute",
@@ -157,9 +159,12 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
             justifyContent: "center",
           }}
         >
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
-            No stream
-          </Text>
+          <Text style={{ fontSize: 24 }}>📡</Text>
+          {!rtc && liveSessionId ? (
+            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 4, textAlign: "center", paddingHorizontal: 8 }}>
+              Video needs dev client
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </View>
