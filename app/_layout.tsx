@@ -1,16 +1,12 @@
 import "../global.css";
-import { useEffect } from "react";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Redirect, Stack, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
+import { View } from "react-native";
 
-/**
- * Root layout — global providers + the auth gate that redirects between
- * the (auth) and (tabs) stacks.
- */
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -29,17 +25,18 @@ export default function RootLayout() {
 function AuthGate() {
   const { session, isLoading } = useAuth();
   const segments = useSegments();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (isLoading) return;
-    const inAuthGroup = segments[0] === "(auth)";
-    if (!session && !inAuthGroup) {
-      router.replace("/(auth)/login");
-    } else if (session && inAuthGroup) {
-      router.replace("/(tabs)/live");
-    }
-  }, [session, isLoading, segments, router]);
+  if (isLoading) {
+    return <View style={{ flex: 1, backgroundColor: "#000" }} />;
+  }
+
+  const inAuthGroup = segments[0] === "(auth)";
+  if (!session && !inAuthGroup) {
+    return <Redirect href="/(auth)/login" />;
+  }
+  if (session && inAuthGroup) {
+    return <Redirect href="/(tabs)/live" />;
+  }
 
   return (
     <Stack
