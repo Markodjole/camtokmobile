@@ -7,6 +7,7 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
+import Svg, { Path } from "react-native-svg";
 import type { RoutePoint } from "@/types/live";
 
 type DriverRouteOverlay = {
@@ -186,22 +187,29 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           anchor={{ x: 0.5, y: 0.5 }}
           rotation={last.heading ?? 0}
           flat
+          zIndex={999}
           tracksViewChanges={false}
         >
+          {/* Arrow pointing north — rotated by `rotation` prop above */}
           <View
             style={{
-              width: 20,
-              height: 20,
-              borderRadius: 10,
-              borderWidth: 2.5,
-              borderColor: "white",
-              backgroundColor: "#ef4444",
               shadowColor: "#000",
               shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.6,
-              shadowRadius: 3,
+              shadowOpacity: 0.7,
+              shadowRadius: 4,
+              elevation: 8,
             }}
-          />
+          >
+            <Svg width={32} height={32} viewBox="0 0 32 32">
+              <Path
+                d="M16 2 L30 30 L16 23 L2 30 Z"
+                fill="#ef4444"
+                stroke="white"
+                strokeWidth={2.5}
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </View>
         </Marker>
       ) : null}
     </MapView>

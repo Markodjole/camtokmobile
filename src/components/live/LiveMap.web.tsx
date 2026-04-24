@@ -120,18 +120,31 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
       ).addTo(map);
     }
 
-    // Driver dot — move existing marker, don't recreate it
+    // Driver arrow — move existing marker and update rotation, don't recreate
     if (last) {
+      const heading = last.heading ?? 0;
+      const arrowHtml = `<div style="width:32px;height:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))">
+        <svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(${heading}deg);transform-origin:center">
+          <path d="M16 2 L30 30 L16 23 L2 30 Z" fill="#ef4444" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
+        </svg>
+      </div>`;
+
       if (markerRef.current) {
         markerRef.current.setLatLng([last.lat, last.lng]);
+        // Update rotation in-place by replacing icon HTML
+        const el = markerRef.current.getElement();
+        if (el) el.innerHTML = arrowHtml;
       } else {
         const icon = L.divIcon({
           className: "",
-          html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:2.5px solid white;box-shadow:0 0 6px rgba(0,0,0,.6)"></div>',
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
+          html: arrowHtml,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
         });
-        markerRef.current = L.marker([last.lat, last.lng], { icon }).addTo(map);
+        markerRef.current = L.marker([last.lat, last.lng], {
+          icon,
+          zIndexOffset: 1000,
+        }).addTo(map);
       }
       // Smooth pan — tiles already loaded, only viewport shifts
       map.panTo([last.lat, last.lng], { animate: true, duration: 0.8, easeLinearity: 0.5 });
