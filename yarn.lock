@@ -1001,7 +1001,7 @@
   resolved "https://registry.npmmirror.com/@expo/config-types/-/config-types-54.0.10.tgz#688f4338255d2fdea970f44e2dfd8e8d37dec292"
   integrity sha512-/J16SC2an1LdtCZ67xhSkGXpALYUVUNyZws7v+PVsFZxClYehDSoKLqyRaGkpHlYrCc08bS0RF5E0JV6g50psA==
 
-"@expo/config@~12.0.13":
+"@expo/config@~12.0.11", "@expo/config@~12.0.13":
   version "12.0.13"
   resolved "https://registry.npmmirror.com/@expo/config/-/config-12.0.13.tgz#8e696e6121c3c364e1dd527f595cf0a1d9386828"
   integrity sha512-Cu52arBa4vSaupIWsF0h7F/Cg//N374nYb7HAxV0I4KceKA7x2UXpYaHOL7EEYYvp7tZdThBjvGpVmr8ScIvaQ==
@@ -1280,11 +1280,6 @@
   version "0.1.8"
   resolved "https://registry.npmmirror.com/@expo/schema-utils/-/schema-utils-0.1.8.tgz#8b9543d77fc4ac4954196e3fa00f8fcedd71426a"
   integrity sha512-9I6ZqvnAvKKDiO+ZF8BpQQFYWXOJvTAL5L/227RUbWG1OVZDInFifzCBiqAZ3b67NRfeAgpgvbA7rejsqhY62A==
-
-"@expo/schema-utils@^55.0.3":
-  version "55.0.3"
-  resolved "https://registry.npmmirror.com/@expo/schema-utils/-/schema-utils-55.0.3.tgz#4d976417bb659b6185a28e6174192f5b006a1056"
-  integrity sha512-l9KHVjTo6MvoeyvwNr6AjckGJm8NIcqZ3QSAh51cWozXW9v2AUjyCyqYtFtyntLWRZ0x/ByYJishpQo4ZQq45Q==
 
 "@expo/sdk-runtime-versions@^1.0.0":
   version "1.0.0"
@@ -2472,6 +2467,16 @@ ajv@^6.12.4, ajv@^6.14.0:
     fast-json-stable-stringify "^2.0.0"
     json-schema-traverse "^0.4.1"
     uri-js "^4.2.2"
+
+ajv@^8.11.0:
+  version "8.18.0"
+  resolved "https://registry.npmmirror.com/ajv/-/ajv-8.18.0.tgz#8864186b6738d003eb3a933172bb3833e10cefbc"
+  integrity sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==
+  dependencies:
+    fast-deep-equal "^3.1.3"
+    fast-uri "^3.0.1"
+    json-schema-traverse "^1.0.0"
+    require-from-string "^2.0.2"
 
 anser@^1.4.9:
   version "1.4.10"
@@ -4037,37 +4042,37 @@ expo-crypto@~15.0.8:
   dependencies:
     base64-js "^1.3.0"
 
-expo-dev-client@^55.0.28:
-  version "55.0.28"
-  resolved "https://registry.npmmirror.com/expo-dev-client/-/expo-dev-client-55.0.28.tgz#0189f72ebb6540f668e62f65d8e4a49b596570e9"
-  integrity sha512-QZK6Ylx8Jg7lhOOHCxwC10g+i34ggMBAqV497JXFqla1tuuYiEw1poNJS5pD/60ZLe8kyy5PYPB4E9ezDHA9yQ==
+expo-dev-client@~6.0.20:
+  version "6.0.20"
+  resolved "https://registry.npmmirror.com/expo-dev-client/-/expo-dev-client-6.0.20.tgz#d5b65974785100ae7f2538e16701fa1ef55f5fad"
+  integrity sha512-5XjoVlj1OxakNxy55j/AUaGPrDOlQlB6XdHLLWAw61w5ffSpUDHDnuZzKzs9xY1eIaogOqTOQaAzZ2ddBkdXLA==
   dependencies:
-    expo-dev-launcher "55.0.29"
-    expo-dev-menu "55.0.24"
-    expo-dev-menu-interface "55.0.2"
-    expo-manifests "~55.0.16"
-    expo-updates-interface "~55.1.6"
+    expo-dev-launcher "6.0.20"
+    expo-dev-menu "7.0.18"
+    expo-dev-menu-interface "2.0.0"
+    expo-manifests "~1.0.10"
+    expo-updates-interface "~2.0.0"
 
-expo-dev-launcher@55.0.29:
-  version "55.0.29"
-  resolved "https://registry.npmmirror.com/expo-dev-launcher/-/expo-dev-launcher-55.0.29.tgz#3a791e5cf5e95209fd8665ee928d5c635abc3a80"
-  integrity sha512-Rusz6VfVUAXPArkQhnxC5yY70RCfGNZv+06qCGIkm2boQ3wOiSUwJic8oIt7kW6yD2rkpm24q/7F/6r5joPfng==
+expo-dev-launcher@6.0.20:
+  version "6.0.20"
+  resolved "https://registry.npmmirror.com/expo-dev-launcher/-/expo-dev-launcher-6.0.20.tgz#b2ce90ff6af4c4de28bc1ea595b0b504ed9b467d"
+  integrity sha512-a04zHEeT9sB0L5EB38fz7sNnUKJ2Ar1pXpcyl60Ki8bXPNCs9rjY7NuYrDkP/irM8+1DklMBqHpyHiLyJ/R+EA==
   dependencies:
-    "@expo/schema-utils" "^55.0.3"
-    expo-dev-menu "55.0.24"
-    expo-manifests "~55.0.16"
+    ajv "^8.11.0"
+    expo-dev-menu "7.0.18"
+    expo-manifests "~1.0.10"
 
-expo-dev-menu-interface@55.0.2:
-  version "55.0.2"
-  resolved "https://registry.npmmirror.com/expo-dev-menu-interface/-/expo-dev-menu-interface-55.0.2.tgz#aead1b9980c904d61c59e9182e13b2b37bcb2161"
-  integrity sha512-DomUNvGzY/xliwnMdbAYY780sCv19N7zIbifc0ClcoCzJZpNSCkvJ2qGIFRPyM/7DmqmlHGCKi8di7kYYLKNEg==
+expo-dev-menu-interface@2.0.0:
+  version "2.0.0"
+  resolved "https://registry.npmmirror.com/expo-dev-menu-interface/-/expo-dev-menu-interface-2.0.0.tgz#c0d6db65eb4abc44a2701bc2303744619ad05ca6"
+  integrity sha512-BvAMPt6x+vyXpThsyjjOYyjwfjREV4OOpQkZ0tNl+nGpsPfcY9mc6DRACoWnH9KpLzyIt3BOgh3cuy/h/OxQjw==
 
-expo-dev-menu@55.0.24:
-  version "55.0.24"
-  resolved "https://registry.npmmirror.com/expo-dev-menu/-/expo-dev-menu-55.0.24.tgz#6af52133cd9de105d28317eb47938ffedb041e3b"
-  integrity sha512-/J93rADODlKpmaN9uywTd/RMywPDeUo/bAnrZNxlHrFUuO1VCGqYLhacITg2zebU8hucaou8pa8zVsTQaUCv6w==
+expo-dev-menu@7.0.18:
+  version "7.0.18"
+  resolved "https://registry.npmmirror.com/expo-dev-menu/-/expo-dev-menu-7.0.18.tgz#4f3e2dc20b82fc495afb602301b83fa16430f6b8"
+  integrity sha512-4kTdlHrnZCAWCT6tZRQHSSjZ7vECFisL4T+nsG/GJDo/jcHNaOVGV5qPV9wzlTxyMk3YOPggRw4+g7Ownrg5eA==
   dependencies:
-    expo-dev-menu-interface "55.0.2"
+    expo-dev-menu-interface "2.0.0"
 
 expo-file-system@~19.0.21:
   version "19.0.21"
@@ -4081,10 +4086,10 @@ expo-font@~14.0.11:
   dependencies:
     fontfaceobserver "^2.1.0"
 
-expo-json-utils@~55.0.2:
-  version "55.0.2"
-  resolved "https://registry.npmmirror.com/expo-json-utils/-/expo-json-utils-55.0.2.tgz#ef79888b881ef5b92d27245d3a758bc5debcbccf"
-  integrity sha512-QJMOZOPOG7CTnKcrdVaiummn2va1MCO56z++eyWkDv3GBRODldM6MFMDf/jTREWthFc2Nxo6TuyWRrEV9S6n/Q==
+expo-json-utils@~0.15.0:
+  version "0.15.0"
+  resolved "https://registry.npmmirror.com/expo-json-utils/-/expo-json-utils-0.15.0.tgz#6723574814b9e6b0a90e4e23662be76123ab6ae9"
+  integrity sha512-duRT6oGl80IDzH2LD2yEFWNwGIC2WkozsB6HF3cDYNoNNdUvFk6uN3YiwsTsqVM/D0z6LEAQ01/SlYvN+Fw0JQ==
 
 expo-keep-awake@~15.0.8:
   version "15.0.8"
@@ -4104,12 +4109,13 @@ expo-location@~19.0.8:
   resolved "https://registry.npmmirror.com/expo-location/-/expo-location-19.0.8.tgz#1805393151b1286021c1ad36246b6fd095d09b55"
   integrity sha512-H/FI75VuJ1coodJbbMu82pf+Zjess8X8Xkiv9Bv58ZgPKS/2ztjC1YO1/XMcGz7+s9DrbLuMIw22dFuP4HqneA==
 
-expo-manifests@~55.0.16:
-  version "55.0.16"
-  resolved "https://registry.npmmirror.com/expo-manifests/-/expo-manifests-55.0.16.tgz#d10c4f259561d37bc2bd1ef3047d8ab8482c915b"
-  integrity sha512-BR9BPcNsSnCKlQ/d7ECywr+2T54+bTSr26HjRjSua949o4mO/iPIrLjK0lOAa1oIczju6a6oUFckZD2OljxP0g==
+expo-manifests@~1.0.10:
+  version "1.0.10"
+  resolved "https://registry.npmmirror.com/expo-manifests/-/expo-manifests-1.0.10.tgz#5dfb3db1cdf6b46fee349f1d68a25edf5e087994"
+  integrity sha512-oxDUnURPcL4ZsOBY6X1DGWGuoZgVAFzp6PISWV7lPP2J0r8u1/ucuChBgpK7u1eLGFp6sDIPwXyEUCkI386XSQ==
   dependencies:
-    expo-json-utils "~55.0.2"
+    "@expo/config" "~12.0.11"
+    expo-json-utils "~0.15.0"
 
 expo-modules-autolinking@3.0.24:
   version "3.0.24"
@@ -4175,10 +4181,10 @@ expo-status-bar@~3.0.9:
   dependencies:
     react-native-is-edge-to-edge "^1.2.1"
 
-expo-updates-interface@~55.1.6:
-  version "55.1.6"
-  resolved "https://registry.npmmirror.com/expo-updates-interface/-/expo-updates-interface-55.1.6.tgz#18a806d65a28229ed4a7f920fceb9dda678c5c09"
-  integrity sha512-evxNpagCkjT3lE6bGV570TFzRtKuIuLY8I37RYHoriXCJ+ZKCN1hbmklK29uAixya+BxGpeTI2K4FqYeJLvfrw==
+expo-updates-interface@~2.0.0:
+  version "2.0.0"
+  resolved "https://registry.npmmirror.com/expo-updates-interface/-/expo-updates-interface-2.0.0.tgz#7721cb64c37bcb46b23827b2717ef451a9378749"
+  integrity sha512-pTzAIufEZdVPKql6iMi5ylVSPqV1qbEopz9G6TSECQmnNde2nwq42PxdFBaUEd8IZJ/fdJLQnOT3m6+XJ5s7jg==
 
 expo-web-browser@~15.0.10:
   version "15.0.10"
@@ -4242,6 +4248,11 @@ fast-levenshtein@^2.0.6:
   version "2.0.6"
   resolved "https://registry.npmmirror.com/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz#3d8a5c66883a16a30ca8643e851f19baa7797917"
   integrity sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==
+
+fast-uri@^3.0.1:
+  version "3.1.0"
+  resolved "https://registry.npmmirror.com/fast-uri/-/fast-uri-3.1.0.tgz#66eecff6c764c0df9b762e62ca7edcfb53b4edfa"
+  integrity sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==
 
 fastq@^1.6.0:
   version "1.20.1"
@@ -5216,6 +5227,11 @@ json-schema-traverse@^0.4.1:
   version "0.4.1"
   resolved "https://registry.npmmirror.com/json-schema-traverse/-/json-schema-traverse-0.4.1.tgz#69f6a87d9513ab8bb8fe63bdb0979c448e684660"
   integrity sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==
+
+json-schema-traverse@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.npmmirror.com/json-schema-traverse/-/json-schema-traverse-1.0.0.tgz#ae7bcb3656ab77a73ba5c49bf654f38e6b6860e2"
+  integrity sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==
 
 json-stable-stringify-without-jsonify@^1.0.1:
   version "1.0.1"
