@@ -1,11 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import {
-  mediaDevices,
-  RTCView,
-  type MediaStream,
-} from "react-native-webrtc";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
+
+type MediaStream = {
+  getTracks: () => Array<{ stop?: () => void }>;
+  toURL: () => string;
+};
+
+type WebRtcRuntime = {
+  mediaDevices: {
+    getUserMedia: (constraints: unknown) => Promise<MediaStream>;
+  };
+  RTCView: React.ComponentType<{
+    streamURL: string;
+    style?: unknown;
+    objectFit?: "cover" | "contain";
+    mirror?: boolean;
+    zOrder?: number;
+  }>;
+};
+
+let rtc: WebRtcRuntime | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  rtc = require("react-native-webrtc") as WebRtcRuntime;
+} catch {
+  rtc = null;
+}
 
 type Props = {
   liveSessionId: string | null;
@@ -15,39 +37,58 @@ type Props = {
 };
 
 /**
- * Native broadcaster preview + WebRTC publisher.
+ * Native broadcaster camera preview.
  *
- * - Opens the camera via react-native-webrtc's `mediaDevices.getUserMedia`
- *   (returns a proper MediaStream that RTCView and RTCPeerConnection both
- *   understand natively).
- * - Once `liveSessionId` is set, starts the Supabase Realtime WebRTC
- *   broadcaster so viewers receive the stream end-to-end.
+ * - Dev client (react-native-webrtc available): full WebRTC publish via
+ *   mediaDevices.getUserMedia + RTCView.
+ * - Expo Go fallback: expo-camera for local preview only (video is not
+ *   streamed to viewers, but broadcaster can still go live with GPS/heartbeat).
  */
 export function BroadcasterCameraPreview({ liveSessionId, facing = "front", style }: Props) {
+  // ── WebRTC path (dev client) ───────────────────────────────────────────
+  if (rtc) {
+    return (
+      <WebRtcPreview
+        rtc={rtc}
+        liveSessionId={liveSessionId}
+        facing={facing}
+        style={style}
+      />
+    );
+  }
+
+  // ── Expo Go fallback: expo-camera local preview ────────────────────────
+  return (
+    <ExpoGoPreview liveSessionId={liveSessionId} facing={facing} style={style} />
+  );
+}
+
+// ── WebRTC component (only rendered when react-native-webrtc is available) ──
+
+function WebRtcPreview({
+  rtc: runtime,
+  liveSessionId,
+  facing,
+  style,
+}: Props & { rtc: WebRtcRuntime }) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cleanupBroadcast = useRef<(() => void) | null>(null);
 
-  // ── Open camera ──────────────────────────────────────────────────────────
   useEffect(() => {
     let active = true;
     let current: MediaStream | null = null;
-
     const start = async () => {
       try {
-        const constraints = {
+        const s = await runtime.mediaDevices.getUserMedia({
           audio: true,
           video: {
             facingMode: facing === "front" ? "user" : "environment",
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
-        };
-        const s = (await mediaDevices.getUserMedia(constraints)) as MediaStream;
-        if (!active) {
-          s.getTracks().forEach((t) => t.stop());
-          return;
-        }
+        });
+        if (!active) { s.getTracks().forEach((t) => t.stop?.()); return; }
         current = s;
         setStream(s);
       } catch (e) {
@@ -56,29 +97,19 @@ export function BroadcasterCameraPreview({ liveSessionId, facing = "front", styl
       }
     };
     void start();
-
     return () => {
       active = false;
-      current?.getTracks().forEach((t) => t.stop());
+      current?.getTracks().forEach((t) => t.stop?.());
       setStream(null);
     };
-  }, [facing]);
+  }, [facing, runtime]);
 
-  // ── Start / stop WebRTC broadcast when session goes live ─────────────────
   useEffect(() => {
     if (!liveSessionId || !stream) return;
     let cancelled = false;
-
     startBroadcasterP2p(liveSessionId, stream)
-      .then((cleanup) => {
-        if (cancelled) cleanup();
-        else cleanupBroadcast.current = cleanup;
-      })
-      .catch((e) => {
-        if (!cancelled)
-          setError(e instanceof Error ? e.message : "Broadcast start failed.");
-      });
-
+      .then((fn) => { if (cancelled) fn(); else cleanupBroadcast.current = fn; })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Broadcast failed."); });
     return () => {
       cancelled = true;
       cleanupBroadcast.current?.();
@@ -91,7 +122,7 @@ export function BroadcasterCameraPreview({ liveSessionId, facing = "front", styl
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
       {streamURL ? (
-        <RTCView
+        <runtime.RTCView
           streamURL={streamURL}
           style={{ flex: 1 }}
           objectFit="cover"
@@ -105,56 +136,92 @@ export function BroadcasterCameraPreview({ liveSessionId, facing = "front", styl
           </Text>
         </View>
       )}
-
       {liveSessionId && streamURL ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 12,
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            borderRadius: 6,
-            backgroundColor: "rgba(239,68,68,0.25)",
-          }}
-        >
-          <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "700" }}>
-            ● LIVE
-          </Text>
+        <View style={{
+          position: "absolute", top: 12, left: 12,
+          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
+          backgroundColor: "rgba(239,68,68,0.25)",
+        }}>
+          <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "700" }}>● LIVE</Text>
         </View>
       ) : null}
-
       {error ? (
-        <View
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            left: 0,
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-            backgroundColor: "rgba(0,0,0,0.75)",
-          }}
-        >
-          <Text style={{ color: "#fca5a5", fontSize: 12, textAlign: "center" }}>
-            {error}
-          </Text>
-          <Pressable
-            onPress={() => setError(null)}
-            style={{
-              marginTop: 12,
-              paddingHorizontal: 14,
-              paddingVertical: 6,
-              borderRadius: 999,
-              backgroundColor: "rgba(255,255,255,0.15)",
-            }}
-          >
+        <View style={{
+          position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
+          alignItems: "center", justifyContent: "center",
+          padding: 16, backgroundColor: "rgba(0,0,0,0.75)",
+        }}>
+          <Text style={{ color: "#fca5a5", fontSize: 12, textAlign: "center" }}>{error}</Text>
+          <Pressable onPress={() => setError(null)} style={{
+            marginTop: 12, paddingHorizontal: 14, paddingVertical: 6,
+            borderRadius: 999, backgroundColor: "rgba(255,255,255,0.15)",
+          }}>
             <Text style={{ color: "white", fontSize: 11 }}>Retry</Text>
           </Pressable>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+// ── Expo Go fallback: expo-camera ─────────────────────────────────────────────
+
+function ExpoGoPreview({ liveSessionId, facing, style }: Props) {
+  const [permission, requestPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      void requestPermission();
+    }
+  }, [permission, requestPermission]);
+
+  if (!permission) {
+    return (
+      <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }, style]}>
+        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Requesting camera…</Text>
+      </View>
+    );
+  }
+  if (!permission.granted) {
+    return (
+      <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 16 }, style]}>
+        <Text style={{ color: "white", fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+          Camera permission is required to go live.
+        </Text>
+        <Pressable onPress={() => void requestPermission()} style={{
+          paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+          backgroundColor: "rgba(255,255,255,0.15)",
+        }}>
+          <Text style={{ color: "white", fontSize: 12 }}>Grant permission</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[{ flex: 1, backgroundColor: "#000", overflow: "hidden" }, style]}>
+      <CameraView style={{ flex: 1 }} facing={facing === "back" ? "back" : "front"} />
+      {liveSessionId ? (
+        <View style={{
+          position: "absolute", top: 12, left: 12,
+          paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
+          backgroundColor: "rgba(239,68,68,0.25)",
+        }}>
+          <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "700" }}>● LIVE (camera only)</Text>
+        </View>
+      ) : null}
+      <View style={{
+        position: "absolute", bottom: 10, left: 0, right: 0,
+        alignItems: "center",
+      }}>
+        <Text style={{
+          color: "rgba(255,255,255,0.5)", fontSize: 10,
+          backgroundColor: "rgba(0,0,0,0.45)", paddingHorizontal: 8,
+          paddingVertical: 3, borderRadius: 4, overflow: "hidden",
+        }}>
+          Install dev client for live video streaming
+        </Text>
+      </View>
     </View>
   );
 }

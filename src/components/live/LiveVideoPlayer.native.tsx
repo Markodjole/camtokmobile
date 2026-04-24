@@ -1,7 +1,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
-import { RTCView, type MediaStream } from "react-native-webrtc";
 import { startViewerP2p } from "@/lib/liveP2p.native";
+
+type MediaStream = { toURL: () => string };
+type WebRtcRuntime = {
+  RTCView: React.ComponentType<{
+    streamURL: string;
+    style?: unknown;
+    objectFit?: "cover" | "contain";
+    mirror?: boolean;
+    zOrder?: number;
+  }>;
+};
+
+let rtc: WebRtcRuntime | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  rtc = require("react-native-webrtc") as WebRtcRuntime;
+} catch {
+  rtc = null;
+}
 
 type Props = {
   liveSessionId?: string | null;
@@ -29,6 +47,10 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
       setError(null);
       return;
     }
+    if (!rtc) {
+      // Expo Go — silently no-op; the room shows the map fullscreen instead
+      return;
+    }
 
     let cancelled = false;
 
@@ -38,7 +60,7 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
         liveSessionId,
         (s) => {
           if (!cancelled) {
-            setRemoteStream(s as MediaStream);
+            setRemoteStream(s as unknown as MediaStream);
             setError(null);
           }
         },
@@ -73,13 +95,15 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
       {streamURL ? (
-        <RTCView
+        rtc ? (
+        <rtc.RTCView
           streamURL={streamURL}
           style={{ flex: 1 }}
           objectFit="cover"
           mirror={false}
           zOrder={0}
         />
+        ) : null
       ) : null}
 
       {connecting ? (

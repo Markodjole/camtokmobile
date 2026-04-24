@@ -100,15 +100,11 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
     [driverRoute],
   );
 
-  if (!initialRegion && !last) {
-    return <View style={{ flex: 1, backgroundColor: "#111827" }} />;
-  }
-
   const region: Region = {
     latitude: last?.lat ?? 44.0,
     longitude: last?.lng ?? 20.9,
-    latitudeDelta: 0.005,
-    longitudeDelta: 0.005,
+    latitudeDelta: last ? 0.005 : 0.5,
+    longitudeDelta: last ? 0.005 : 0.5,
   };
 
   return (

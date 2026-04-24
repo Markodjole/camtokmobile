@@ -7,18 +7,30 @@
  * `registerGlobals()` is called once at module load. After that,
  * `new RTCPeerConnection()` etc. work globally, just like a browser.
  */
-import {
-  registerGlobals,
-  RTCPeerConnection as NativeRTCPeerConnection,
-  type MediaStream,
-} from "react-native-webrtc";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "./supabase";
 import { env } from "./env";
 
-// Register WebRTC globals so the shared signaling logic can use the
-// standard browser names (RTCPeerConnection, RTCIceCandidate …).
-registerGlobals();
+type MediaStream = {
+  getTracks: () => Array<{ stop?: () => void }>;
+  addTrack?: (track: unknown) => void;
+};
+
+type RtcRuntime = {
+  RTCPeerConnection: new (cfg: RTCConfiguration) => RTCPeerConnection;
+  registerGlobals?: () => void;
+  MediaStream?: new (...args: unknown[]) => MediaStream;
+};
+
+let rtcRuntime: RtcRuntime | null = null;
+try {
+  // Expo Go doesn't include this native module.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  rtcRuntime = require("react-native-webrtc") as RtcRuntime;
+  rtcRuntime.registerGlobals?.();
+} catch {
+  rtcRuntime = null;
+}
 
 // ─── ICE config ───────────────────────────────────────────────────────────────
 
@@ -89,7 +101,10 @@ function iceUfrag(sdp: string): string {
 // react-native-webrtc wraps RTCPeerConnection — cast to any for methods
 // not yet in the community type definitions.
 function makePc(): RTCPeerConnection {
-  return new NativeRTCPeerConnection(buildIceConfig()) as unknown as RTCPeerConnection;
+  if (!rtcRuntime) {
+    throw new Error("WebRTC native module unavailable (Expo Go).");
+  }
+  return new rtcRuntime.RTCPeerConnection(buildIceConfig()) as unknown as RTCPeerConnection;
 }
 
 // ─── Broadcaster ──────────────────────────────────────────────────────────────
@@ -98,6 +113,10 @@ export async function startBroadcasterP2p(
   liveSessionId: string,
   stream: MediaStream,
 ): Promise<() => void> {
+  if (!rtcRuntime) {
+    console.warn("WebRTC unavailable in Expo Go; use custom dev client for live video.");
+    return () => undefined;
+  }
   const supabase = getSupabase();
   const ch = supabase.channel(webrtcChannelName(liveSessionId), {
     config: { broadcast: { ack: false, self: false } },
@@ -253,6 +272,10 @@ export async function startViewerP2p(
   onRemoteStream: (stream: MediaStream) => void,
   onFailure?: (message: string) => void,
 ): Promise<() => void> {
+  if (!rtcRuntime) {
+    onFailure?.("WebRTC unavailable in Expo Go. Install the dev client build.");
+    return () => undefined;
+  }
   const supabase = getSupabase();
   const ch = supabase.channel(webrtcChannelName(liveSessionId), {
     config: { broadcast: { ack: false, self: false } },
@@ -293,8 +316,10 @@ export async function startViewerP2p(
         e.streams?.[0] ??
         (() => {
           // react-native-webrtc MediaStream constructor
-          const m = new (require("react-native-webrtc").MediaStream)([]);
-          if (e.track) m.addTrack(e.track);
+          const MediaStreamCtor = rtcRuntime?.MediaStream;
+          if (!MediaStreamCtor) throw new Error("Missing MediaStream constructor");
+          const m = new MediaStreamCtor([]);
+          if (e.track) m.addTrack?.(e.track);
           return m;
         })();
       onRemoteStream(s);
