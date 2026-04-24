@@ -120,17 +120,13 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
       ).addTo(map);
     }
 
-    // Driver arrow — move + re-icon existing marker, don't recreate it
+    // Driver red dot — move + re-icon existing marker, don't recreate it
     if (last) {
-      const heading = last.heading ?? 0;
-      const makeArrowIcon = (h: number) =>
+      const makeDotIcon = () =>
         L.divIcon({
           className: "",
           html: `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.9)) drop-shadow(0 0 6px rgba(0,0,0,.6))">
-            <svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(${h}deg);transform-origin:50% 50%">
-              <polygon points="16,2 30,30 16,23 2,30" fill="white"></polygon>
-              <polygon points="16,4 27,28 16,22 5,28" fill="#ef4444"></polygon>
-            </svg>
+            <div style="width:18px;height:18px;border-radius:9999px;border:2.5px solid white;background:#ef4444"></div>
           </div>`,
           iconSize: [44, 44],
           iconAnchor: [22, 22],
@@ -138,10 +134,10 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
 
       if (markerRef.current) {
         markerRef.current.setLatLng([last.lat, last.lng]);
-        markerRef.current.setIcon(makeArrowIcon(heading));
+        markerRef.current.setIcon(makeDotIcon());
       } else {
         markerRef.current = L.marker([last.lat, last.lng], {
-          icon: makeArrowIcon(heading),
+          icon: makeDotIcon(),
           zIndexOffset: 1000,
         }).addTo(map);
       }

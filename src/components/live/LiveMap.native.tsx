@@ -23,7 +23,7 @@ type Props = {
 
 // Camera animation duration — short enough to keep up with ~1 Hz GPS.
 const CAMERA_ANIM_MS = 450;
-const MARKER_SMOOTH_MS = 500;
+const MARKER_PREDICT_MAX_MS = 1200;
 
 /**
  * Native live map.
@@ -39,6 +39,14 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
   const mapRef = useRef<MapView>(null);
   const markerRafRef = useRef<number | null>(null);
   const smoothedRef = useRef<RoutePoint | null>(null);
+  const lastRawRef = useRef<RoutePoint | null>(null);
+  const velocityRef = useRef<{ latPerMs: number; lngPerMs: number }>({
+    latPerMs: 0,
+    lngPerMs: 0,
+  });
+  const lastFrameTsRef = useRef<number | null>(null);
+  const lastRawTsRef = useRef<number>(0);
+  const targetRef = useRef<RoutePoint | null>(null);
 
   const last = routePoints[routePoints.length - 1];
   const [smoothedLast, setSmoothedLast] = useState<RoutePoint | null>(last ?? null);
@@ -64,43 +72,68 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
     );
   }, [last, followDriver]);
 
-  // "Fake smoothness": interpolate marker position between network/GPS points
+  // Receive real GPS ticks and update target + velocity model
   useEffect(() => {
     if (!last) {
       smoothedRef.current = null;
+      lastRawRef.current = null;
+      targetRef.current = null;
       setSmoothedLast(null);
       return;
     }
-
-    if (markerRafRef.current != null) {
-      cancelAnimationFrame(markerRafRef.current);
-      markerRafRef.current = null;
-    }
-
-    const from = smoothedRef.current ?? last;
-    const to = last;
-    const start = Date.now();
-
-    const tick = () => {
-      const t = Math.min(1, (Date.now() - start) / MARKER_SMOOTH_MS);
-      const eased = 1 - (1 - t) * (1 - t); // easeOutQuad
-      const next: RoutePoint = {
-        lat: from.lat + (to.lat - from.lat) * eased,
-        lng: from.lng + (to.lng - from.lng) * eased,
-        heading:
-          (from.heading ?? to.heading ?? 0) +
-          ((to.heading ?? from.heading ?? 0) - (from.heading ?? to.heading ?? 0)) *
-            eased,
-        speedMps: to.speedMps,
+    const now = Date.now();
+    const prevRaw = lastRawRef.current;
+    const prevRawTs = lastRawTsRef.current;
+    if (prevRaw && prevRawTs > 0) {
+      const dt = Math.max(1, now - prevRawTs);
+      velocityRef.current = {
+        latPerMs: (last.lat - prevRaw.lat) / dt,
+        lngPerMs: (last.lng - prevRaw.lng) / dt,
       };
-      smoothedRef.current = next;
-      setSmoothedLast(next);
+    }
+    lastRawRef.current = last;
+    lastRawTsRef.current = now;
+    targetRef.current = last;
 
-      if (t < 1) {
-        markerRafRef.current = requestAnimationFrame(tick);
-      } else {
-        markerRafRef.current = null;
+    if (!smoothedRef.current) {
+      smoothedRef.current = last;
+      setSmoothedLast(last);
+    }
+  }, [last?.lat, last?.lng, last?.heading, last?.speedMps]);
+
+  // Continuous forward motion between ticks: predict forward and blend to target
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      const target = targetRef.current;
+      const current = smoothedRef.current;
+      const lastFrameTs = lastFrameTsRef.current ?? now;
+      const dt = Math.max(1, now - lastFrameTs);
+      lastFrameTsRef.current = now;
+
+      if (target && current) {
+        const sinceRaw = now - lastRawTsRef.current;
+        const predictFactor =
+          sinceRaw < MARKER_PREDICT_MAX_MS
+            ? 1 - sinceRaw / MARKER_PREDICT_MAX_MS
+            : 0;
+
+        const predictedLat = target.lat + velocityRef.current.latPerMs * dt * predictFactor;
+        const predictedLng = target.lng + velocityRef.current.lngPerMs * dt * predictFactor;
+
+        // Critically damped blend toward predicted point (fake smooth driving)
+        const blend = 0.18;
+        const next: RoutePoint = {
+          lat: current.lat + (predictedLat - current.lat) * blend,
+          lng: current.lng + (predictedLng - current.lng) * blend,
+          heading: target.heading,
+          speedMps: target.speedMps,
+        };
+        smoothedRef.current = next;
+        setSmoothedLast(next);
       }
+
+      markerRafRef.current = requestAnimationFrame(tick);
     };
 
     markerRafRef.current = requestAnimationFrame(tick);
@@ -109,8 +142,9 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         cancelAnimationFrame(markerRafRef.current);
         markerRafRef.current = null;
       }
+      lastFrameTsRef.current = null;
     };
-  }, [last?.lat, last?.lng, last?.heading, last?.speedMps]);
+  }, []);
 
   const historyCoords = useMemo(
     () => routePoints.map((p) => ({ latitude: p.lat, longitude: p.lng })),
@@ -211,46 +245,25 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           coordinate={{ latitude: smoothedLast.lat, longitude: smoothedLast.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
           centerOffset={{ x: 0, y: 0 }}
-          rotation={smoothedLast.heading ?? 0}
-          flat
           zIndex={999}
-          tracksViewChanges
+          tracksViewChanges={false}
         >
-          {/* Geometric arrow (not font glyph) keeps center alignment precise */}
+          {/* Red driver dot */}
           <View
             style={{
-              width: 40,
-              height: 40,
-              alignItems: "center",
-              justifyContent: "center",
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              borderWidth: 2.5,
+              borderColor: "white",
+              backgroundColor: "#ef4444",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.55,
+              shadowRadius: 3,
+              elevation: 7,
             }}
-          >
-            <View
-              style={{
-                position: "absolute",
-                width: 0,
-                height: 0,
-                borderLeftWidth: 12,
-                borderRightWidth: 12,
-                borderBottomWidth: 24,
-                borderLeftColor: "transparent",
-                borderRightColor: "transparent",
-                borderBottomColor: "white",
-              }}
-            />
-            <View
-              style={{
-                width: 0,
-                height: 0,
-                borderLeftWidth: 9,
-                borderRightWidth: 9,
-                borderBottomWidth: 18,
-                borderLeftColor: "transparent",
-                borderRightColor: "transparent",
-                borderBottomColor: "#ef4444",
-              }}
-            />
-          </View>
+          />
         </Marker>
       ) : null}
     </MapView>
