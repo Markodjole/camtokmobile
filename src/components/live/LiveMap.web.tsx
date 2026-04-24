@@ -1,11 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import React, { useEffect, useMemo } from "react";
-import { View, Text } from "react-native";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useEffect, useRef } from "react";
+import { Text, View } from "react-native";
 import type { RoutePoint } from "@/types/live";
-// Leaflet is web-only. We require it at runtime so the native bundler
-// never tries to resolve it.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type L = any;
 
 type DriverRouteOverlay = {
   turnPoint: { lat: number; lng: number };
@@ -20,14 +17,25 @@ type Props = {
 };
 
 /**
- * Web implementation of LiveMap using Leaflet / OpenStreetMap tiles.
- * `react-native-maps` is native-only; this gives the web build the same
- * interactive map experience.
+ * Persistent Leaflet map — the map instance lives for the entire lifetime
+ * of the component and layers are updated imperatively.
+ *
+ * Previously the map was destroyed + recreated on every GPS update
+ * (routeKey/driverKey in the effect dep array), causing 1-3 s tile-reload
+ * flashes. Now tiles stay in memory and only the polyline / marker move.
  */
 export function LiveMap({ routePoints, driverRoute }: Props) {
-  const last = routePoints[routePoints.length - 1];
+  // Keep Leaflet instance alive in refs
+  const containerRef = useRef<any>(null);
+  const mapRef = useRef<any>(null);
+  const tileLayerRef = useRef<any>(null);
+  const routePolyRef = useRef<any>(null);
+  const driverPolyRef = useRef<any>(null);
+  const turnCircleRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const initializedRef = useRef(false);
 
-  // Inject Leaflet CSS once
+  // ── Inject Leaflet CSS once ────────────────────────────────────────────
   useEffect(() => {
     if (document.querySelector("[data-leaflet-css]")) return;
     const link = document.createElement("link");
@@ -37,102 +45,163 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
     document.head.appendChild(link);
   }, []);
 
-  const mapId = useMemo(
-    () => `leaflet-map-${Math.random().toString(36).slice(2)}`,
-    [],
-  );
-
-  // Serialise deps so we can safely stringify in the dep array
-  const routeKey = JSON.stringify(routePoints);
-  const routeRef = React.useRef(routePoints);
-  routeRef.current = routePoints;
-  const driverKey = JSON.stringify(driverRoute ?? null);
-  const driverRef = React.useRef(driverRoute);
-  driverRef.current = driverRoute;
-
+  // ── Create map exactly ONCE when container mounts ─────────────────────
+  // Deps array is intentionally empty — we never want to destroy+recreate
+  // the map because that forces all tiles to be re-fetched.
   useEffect(() => {
-    // Require leaflet via CommonJS at runtime (web only)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const L: L = require("leaflet");
+    const container = containerRef.current;
+    if (!container || initializedRef.current) return;
+    initializedRef.current = true;
 
-    const container = document.getElementById(mapId);
-    if (!container) return;
+    const L = require("leaflet");
 
-    const pts = routeRef.current;
-    const dr = driverRef.current;
-    const lastPt = pts[pts.length - 1];
-    const center: [number, number] = lastPt
-      ? [lastPt.lat, lastPt.lng]
-      : [44.0, 20.9];
+    const last = routePoints[routePoints.length - 1];
+    const center: [number, number] = last ? [last.lat, last.lng] : [44.0, 20.9];
 
     const map = L.map(container, {
       center,
-      zoom: lastPt ? 16 : 5,
+      zoom: last ? 16 : 5,
       zoomControl: true,
       attributionControl: false,
+      // Smooth panning / zooming
+      zoomAnimation: true,
+      fadeAnimation: true,
+      markerZoomAnimation: true,
     });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-    }).addTo(map);
+    // Tile layer with aggressive browser caching (OSM honours Cache-Control)
+    tileLayerRef.current = L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      {
+        maxZoom: 19,
+        keepBuffer: 8,        // keep 8 extra tile rows/cols in memory
+        updateWhenIdle: false, // update tiles while panning (smoother)
+        updateWhenZooming: false,
+      },
+    ).addTo(map);
 
-    if (pts.length > 1) {
-      L.polyline(
-        pts.map((p: RoutePoint) => [p.lat, p.lng]),
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      tileLayerRef.current = null;
+      routePolyRef.current = null;
+      driverPolyRef.current = null;
+      turnCircleRef.current = null;
+      markerRef.current = null;
+      initializedRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // <-- EMPTY — map is created once
+
+  // ── Update route polyline + marker imperatively ────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const L = require("leaflet");
+    const last = routePoints[routePoints.length - 1];
+
+    // Route polyline — setLatLngs avoids a layer remove/re-add
+    if (routePolyRef.current) {
+      if (routePoints.length > 1) {
+        routePolyRef.current.setLatLngs(
+          routePoints.map((p: RoutePoint) => [p.lat, p.lng]),
+        );
+      } else {
+        map.removeLayer(routePolyRef.current);
+        routePolyRef.current = null;
+      }
+    } else if (routePoints.length > 1) {
+      routePolyRef.current = L.polyline(
+        routePoints.map((p: RoutePoint) => [p.lat, p.lng]),
         { color: "#10b981", weight: 5, opacity: 0.9 },
       ).addTo(map);
     }
 
-    if (dr?.routePolyline && dr.routePolyline.length > 1) {
-      L.polyline(
-        dr.routePolyline.map((p) => [p.lat, p.lng]),
+    // Driver dot — move existing marker, don't recreate it
+    if (last) {
+      if (markerRef.current) {
+        markerRef.current.setLatLng([last.lat, last.lng]);
+      } else {
+        const icon = L.divIcon({
+          className: "",
+          html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:2.5px solid white;box-shadow:0 0 6px rgba(0,0,0,.6)"></div>',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        });
+        markerRef.current = L.marker([last.lat, last.lng], { icon }).addTo(map);
+      }
+      // Smooth pan — tiles already loaded, only viewport shifts
+      map.panTo([last.lat, last.lng], { animate: true, duration: 0.8, easeLinearity: 0.5 });
+    }
+  }, [routePoints]);
+
+  // ── Update driver-route overlay imperatively ───────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const L = require("leaflet");
+
+    // Remove old driver overlay layers
+    if (driverPolyRef.current) {
+      map.removeLayer(driverPolyRef.current);
+      driverPolyRef.current = null;
+    }
+    if (turnCircleRef.current) {
+      map.removeLayer(turnCircleRef.current);
+      turnCircleRef.current = null;
+    }
+
+    if (driverRoute?.routePolyline && driverRoute.routePolyline.length > 1) {
+      driverPolyRef.current = L.polyline(
+        driverRoute.routePolyline.map((p) => [p.lat, p.lng]),
         { color: "#3b82f6", weight: 7, opacity: 0.55 },
       ).addTo(map);
     }
-
-    if (dr?.turnPoint) {
-      L.circle([dr.turnPoint.lat, dr.turnPoint.lng], {
-        radius: 16,
-        color: "#2563eb",
-        fillColor: "#3b82f6",
-        fillOpacity: 0.25,
-        weight: 2,
-      }).addTo(map);
+    if (driverRoute?.turnPoint) {
+      turnCircleRef.current = L.circle(
+        [driverRoute.turnPoint.lat, driverRoute.turnPoint.lng],
+        {
+          radius: 16,
+          color: "#2563eb",
+          fillColor: "#3b82f6",
+          fillOpacity: 0.25,
+          weight: 2,
+        },
+      ).addTo(map);
     }
+  }, [driverRoute]);
 
-    if (lastPt) {
-      const icon = L.divIcon({
-        className: "",
-        html: '<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:2.5px solid white;box-shadow:0 0 6px rgba(0,0,0,.6)"></div>',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      });
-      L.marker([lastPt.lat, lastPt.lng], { icon }).addTo(map);
-      map.setView([lastPt.lat, lastPt.lng], 16, { animate: true });
-    }
-
-    return () => {
-      map.remove();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapId, routeKey, driverKey]);
-
-  if (!last) {
-    return (
-      <View
-        style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#1a1a1a" }}
-      >
-        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>
-          Waiting for GPS…
-        </Text>
-      </View>
-    );
-  }
+  const hasPoints = routePoints.length > 0;
 
   return (
     <View style={{ flex: 1 }}>
-      {/* plain <div> is valid inside Expo Web's React DOM render tree */}
-      <div id={mapId} style={{ width: "100%", height: "100%", background: "#1a1a1a" }} />
+      {!hasPoints ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "#111827",
+            zIndex: 1,
+          }}
+        >
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13 }}>
+            Waiting for GPS…
+          </Text>
+        </View>
+      ) : null}
+      {React.createElement("div" as any, {
+        ref: containerRef,
+        style: { width: "100%", height: "100%", background: "#111827" },
+      })}
     </View>
   );
 }

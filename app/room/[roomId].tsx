@@ -22,6 +22,7 @@ import {
   useRoutePoints,
 } from "@/hooks/useLiveRoom";
 import { blurOnWeb } from "@/lib/blurOnWeb";
+import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 
 /**
  * Mobile twin of `apps/web/src/components/live/LiveRoomScreen.tsx`.
@@ -42,6 +43,10 @@ export default function RoomScreen() {
   const routePoints = useRoutePoints(room.data?.liveSessionId ?? null);
   const driverRoute = useDriverRoute(roomId ?? null);
   const placeBet = usePlaceBet(roomId ?? null);
+
+  // Pre-fetch map tiles for the driver's current location the moment we know it
+  const firstPoint = room.data?.routePoints?.[0] ?? routePoints.data?.[0];
+  useMapTilePreload(firstPoint?.lat, firstPoint?.lng);
 
   const [betAmount, setBetAmount] = useState(10);
   const [mapExpanded, setMapExpanded] = useState(Platform.OS !== "web");

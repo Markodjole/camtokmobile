@@ -10,6 +10,7 @@ import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPre
 import { apiFetch } from "@/lib/api";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
+import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import type { TransportMode } from "@/types/live";
 
 const MODES: { id: TransportMode; label: string; emoji: string }[] = [
@@ -49,6 +50,10 @@ export default function GoLiveControlScreen() {
     transportMode,
     onError: onTelemetryError,
   });
+
+  // Pre-fetch map tiles for current GPS location as soon as we have a point
+  const lastPoint = routePoints[routePoints.length - 1];
+  useMapTilePreload(lastPoint?.lat, lastPoint?.lng);
 
   async function goLive() {
     if (!characterId) return;

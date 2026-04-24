@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { memo, useEffect, useMemo, useRef } from "react";
 import { View } from "react-native";
 import MapView, {
   Circle,
@@ -21,21 +21,44 @@ type Props = {
   followDriver?: boolean;
 };
 
+// How many metres the driver must move before we animate the camera.
+// Eliminates micro-jump noise on stationary GPS signal.
+const MOVE_THRESHOLD_M = 3;
+
+function distanceM(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLon = ((b.lng - a.lng) * Math.PI) / 180;
+  const sin2 =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) *
+      Math.cos((b.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(sin2), Math.sqrt(1 - sin2));
+}
+
 /**
- * Native map. Draws:
- *   - history polyline (emerald) over recent GPS snapshots
- *   - driver rail polyline (blue) emitted from the server
- *   - upcoming turn point (pulsing blue dot)
- *   - current driver position (red dot, oriented to heading)
+ * Native live map.
+ *
+ * Key fixes vs previous version:
+ * - `MapView` receives `initialRegion` only. The camera is moved
+ *   imperatively via `animateToRegion(region, durationMs)` so iOS/Android
+ *   use their native smooth animation instead of React's re-render cycle.
+ * - Camera only re-fires when the driver moves more than MOVE_THRESHOLD_M
+ *   to avoid micro-jitter on stationary GPS noise.
+ * - Wrapped in `memo` so the map subtree doesn't re-render unless props
+ *   actually changed.
  */
-export function LiveMap({
-  routePoints,
-  driverRoute,
-  followDriver = true,
-}: Props) {
+function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) {
+  const mapRef = useRef<MapView>(null);
+  const lastAnimatedPos = useRef<{ lat: number; lng: number } | null>(null);
+
   const last = routePoints[routePoints.length - 1];
 
-  const region: Region | undefined = useMemo(() => {
+  const initialRegion = useMemo<Region | undefined>(() => {
     if (!last) return undefined;
     return {
       latitude: last.lat,
@@ -43,7 +66,25 @@ export function LiveMap({
       latitudeDelta: 0.005,
       longitudeDelta: 0.005,
     };
-  }, [last]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Imperatively smooth-animate the camera as the driver moves
+  useEffect(() => {
+    if (!last || !followDriver) return;
+    const prev = lastAnimatedPos.current;
+    if (prev && distanceM(prev, last) < MOVE_THRESHOLD_M) return;
+
+    lastAnimatedPos.current = last;
+    mapRef.current?.animateToRegion(
+      {
+        latitude: last.lat,
+        longitude: last.lng,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      },
+      800, // ms — smooth glide
+    );
+  }, [last, followDriver]);
 
   const historyCoords = useMemo(
     () => routePoints.map((p) => ({ latitude: p.lat, longitude: p.lng })),
@@ -59,27 +100,41 @@ export function LiveMap({
     [driverRoute],
   );
 
-  if (!region) {
-    return <View className="flex-1 bg-black" />;
+  if (!initialRegion && !last) {
+    return <View style={{ flex: 1, backgroundColor: "#111827" }} />;
   }
+
+  const region: Region = {
+    latitude: last?.lat ?? 44.0,
+    longitude: last?.lng ?? 20.9,
+    latitudeDelta: 0.005,
+    longitudeDelta: 0.005,
+  };
 
   return (
     <MapView
+      ref={mapRef}
       provider={PROVIDER_DEFAULT}
       style={{ flex: 1 }}
-      initialRegion={region}
-      region={followDriver ? region : undefined}
+      // initialRegion only — camera is driven imperatively via animateToRegion
+      initialRegion={initialRegion ?? region}
       showsUserLocation={false}
       showsCompass={false}
       toolbarEnabled={false}
+      // Keep tile cache between renders
+      moveOnMarkerPress={false}
+      rotateEnabled={false}
+      pitchEnabled={false}
     >
       {historyCoords.length > 1 ? (
         <Polyline
           coordinates={historyCoords}
           strokeColor="#10b981"
           strokeWidth={5}
+          lineDashPattern={undefined}
         />
       ) : null}
+
       {railCoords.length > 1 ? (
         <>
           <Polyline
@@ -94,6 +149,7 @@ export function LiveMap({
           />
         </>
       ) : null}
+
       {driverRoute?.turnPoint ? (
         <>
           <Circle
@@ -112,21 +168,73 @@ export function LiveMap({
               longitude: driverRoute.turnPoint.lng,
             }}
             anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
           >
-            <View className="h-4 w-4 rounded-full border-2 border-white bg-primary" />
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                borderWidth: 2,
+                borderColor: "white",
+                backgroundColor: "#6366f1",
+              }}
+            />
           </Marker>
         </>
       ) : null}
+
       {last ? (
         <Marker
           coordinate={{ latitude: last.lat, longitude: last.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
           rotation={last.heading ?? 0}
           flat
+          tracksViewChanges={false}
         >
-          <View className="h-5 w-5 rounded-full border-2 border-white bg-accent" />
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              borderWidth: 2.5,
+              borderColor: "white",
+              backgroundColor: "#ef4444",
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.6,
+              shadowRadius: 3,
+            }}
+          />
         </Marker>
       ) : null}
     </MapView>
   );
 }
+
+// Only re-render when the last GPS point or driver route meaningfully changes
+export const LiveMap = memo(LiveMapInner, (prev, next) => {
+  const prevLast = prev.routePoints[prev.routePoints.length - 1];
+  const nextLast = next.routePoints[next.routePoints.length - 1];
+
+  // Re-render if last point changed
+  if (
+    prevLast?.lat !== nextLast?.lat ||
+    prevLast?.lng !== nextLast?.lng ||
+    prevLast?.heading !== nextLast?.heading
+  )
+    return false;
+
+  // Re-render if polyline gained new points
+  if (prev.routePoints.length !== next.routePoints.length) return false;
+
+  // Re-render if driver route changed
+  if (
+    prev.driverRoute?.turnPoint?.lat !== next.driverRoute?.turnPoint?.lat ||
+    prev.driverRoute?.routePolyline?.length !==
+      next.driverRoute?.routePolyline?.length
+  )
+    return false;
+
+  return true; // identical — skip re-render
+});
