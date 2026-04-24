@@ -142,8 +142,9 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
           zIndexOffset: 1000,
         }).addTo(map);
       }
-      // Smooth pan — tiles already loaded, only viewport shifts
-      map.panTo([last.lat, last.lng], { animate: true, duration: 0.8, easeLinearity: 0.5 });
+      // Smooth pan — tiles already loaded, only viewport shifts.
+      // Short duration so it keeps up with 1 Hz GPS updates.
+      map.panTo([last.lat, last.lng], { animate: true, duration: 0.45, easeLinearity: 0.4 });
     }
   }, [routePoints]);
 
@@ -167,7 +168,7 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
     if (driverRoute?.routePolyline && driverRoute.routePolyline.length > 1) {
       driverPolyRef.current = L.polyline(
         driverRoute.routePolyline.map((p) => [p.lat, p.lng]),
-        { color: "#3b82f6", weight: 8, opacity: 0.35 },
+        { color: "#3b82f6", weight: 8, opacity: 0.85 },
       ).addTo(map);
     }
     if (driverRoute?.turnPoint) {

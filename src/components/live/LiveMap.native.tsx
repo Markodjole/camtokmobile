@@ -21,40 +21,21 @@ type Props = {
   followDriver?: boolean;
 };
 
-// How many metres the driver must move before we animate the camera.
-// Eliminates micro-jump noise on stationary GPS signal.
-const MOVE_THRESHOLD_M = 3;
-
-function distanceM(
-  a: { lat: number; lng: number },
-  b: { lat: number; lng: number },
-): number {
-  const R = 6371000;
-  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
-  const dLon = ((b.lng - a.lng) * Math.PI) / 180;
-  const sin2 =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((a.lat * Math.PI) / 180) *
-      Math.cos((b.lat * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(sin2), Math.sqrt(1 - sin2));
-}
+// Camera animation duration — short enough to keep up with ~1 Hz GPS.
+const CAMERA_ANIM_MS = 450;
 
 /**
  * Native live map.
  *
- * Key fixes vs previous version:
- * - `MapView` receives `initialRegion` only. The camera is moved
- *   imperatively via `animateToRegion(region, durationMs)` so iOS/Android
- *   use their native smooth animation instead of React's re-render cycle.
- * - Camera only re-fires when the driver moves more than MOVE_THRESHOLD_M
- *   to avoid micro-jitter on stationary GPS noise.
+ * - `MapView` receives `initialRegion` only. Camera is moved imperatively via
+ *   `animateCamera` so native smooth animation is used instead of React render.
+ * - Camera animates every GPS tick (no distance threshold) with a short
+ *   duration so it never lags behind the marker.
  * - Wrapped in `memo` so the map subtree doesn't re-render unless props
  *   actually changed.
  */
 function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) {
   const mapRef = useRef<MapView>(null);
-  const lastAnimatedPos = useRef<{ lat: number; lng: number } | null>(null);
 
   const last = routePoints[routePoints.length - 1];
 
@@ -68,21 +49,14 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Imperatively smooth-animate the camera as the driver moves
+  // Imperatively smooth-animate the camera on every new GPS point
   useEffect(() => {
     if (!last || !followDriver) return;
-    const prev = lastAnimatedPos.current;
-    if (prev && distanceM(prev, last) < MOVE_THRESHOLD_M) return;
-
-    lastAnimatedPos.current = last;
-    mapRef.current?.animateToRegion(
+    mapRef.current?.animateCamera(
       {
-        latitude: last.lat,
-        longitude: last.lng,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
+        center: { latitude: last.lat, longitude: last.lng },
       },
-      800, // ms — smooth glide
+      { duration: CAMERA_ANIM_MS },
     );
   }, [last, followDriver]);
 
@@ -135,12 +109,12 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         <>
           <Polyline
             coordinates={railCoords}
-            strokeColor="rgba(29,78,216,0.18)"
+            strokeColor="rgba(29,78,216,0.4)"
             strokeWidth={14}
           />
           <Polyline
             coordinates={railCoords}
-            strokeColor="rgba(59,130,246,0.45)"
+            strokeColor="rgba(59,130,246,0.85)"
             strokeWidth={7}
           />
         </>
@@ -184,37 +158,31 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         <Marker
           coordinate={{ latitude: last.lat, longitude: last.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
+          centerOffset={{ x: 0, y: 0 }}
           rotation={last.heading ?? 0}
           flat
           zIndex={999}
           tracksViewChanges
         >
-          {/* Arrow — pure View so it works reliably in Expo Go */}
+          {/* Perfectly centered arrow with text-shadow halo for contrast */}
           <View
             style={{
-              width: 44,
-              height: 44,
+              width: 40,
+              height: 40,
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            {/* White halo for contrast above any line color */}
-            <Text
-              style={{
-                fontSize: 38,
-                color: "white",
-                lineHeight: 40,
-                position: "absolute",
-              }}
-            >
-              ▲
-            </Text>
-            {/* Red arrow on top */}
             <Text
               style={{
                 fontSize: 32,
+                lineHeight: 32,
                 color: "#ef4444",
-                lineHeight: 34,
+                textAlign: "center",
+                includeFontPadding: false,
+                textShadowColor: "white",
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 4,
               }}
             >
               ▲
