@@ -43,7 +43,9 @@ export default function RoomScreen() {
   const placeBet = usePlaceBet(roomId ?? null);
 
   const [betAmount, setBetAmount] = useState(10);
-  const [mapExpanded, setMapExpanded] = useState(false);
+  // Default to map view — video is a placeholder until a WebRTC dev client
+  // is attached; the map is always useful.
+  const [mapExpanded, setMapExpanded] = useState(true);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
 
