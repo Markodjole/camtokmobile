@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useRef } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import MapView, {
   Circle,
@@ -23,6 +23,7 @@ type Props = {
 
 // Camera animation duration — short enough to keep up with ~1 Hz GPS.
 const CAMERA_ANIM_MS = 450;
+const MARKER_SMOOTH_MS = 500;
 
 /**
  * Native live map.
@@ -36,8 +37,11 @@ const CAMERA_ANIM_MS = 450;
  */
 function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) {
   const mapRef = useRef<MapView>(null);
+  const markerRafRef = useRef<number | null>(null);
+  const smoothedRef = useRef<RoutePoint | null>(null);
 
   const last = routePoints[routePoints.length - 1];
+  const [smoothedLast, setSmoothedLast] = useState<RoutePoint | null>(last ?? null);
 
   const initialRegion = useMemo<Region | undefined>(() => {
     if (!last) return undefined;
@@ -59,6 +63,54 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
       { duration: CAMERA_ANIM_MS },
     );
   }, [last, followDriver]);
+
+  // "Fake smoothness": interpolate marker position between network/GPS points
+  useEffect(() => {
+    if (!last) {
+      smoothedRef.current = null;
+      setSmoothedLast(null);
+      return;
+    }
+
+    if (markerRafRef.current != null) {
+      cancelAnimationFrame(markerRafRef.current);
+      markerRafRef.current = null;
+    }
+
+    const from = smoothedRef.current ?? last;
+    const to = last;
+    const start = Date.now();
+
+    const tick = () => {
+      const t = Math.min(1, (Date.now() - start) / MARKER_SMOOTH_MS);
+      const eased = 1 - (1 - t) * (1 - t); // easeOutQuad
+      const next: RoutePoint = {
+        lat: from.lat + (to.lat - from.lat) * eased,
+        lng: from.lng + (to.lng - from.lng) * eased,
+        heading:
+          (from.heading ?? to.heading ?? 0) +
+          ((to.heading ?? from.heading ?? 0) - (from.heading ?? to.heading ?? 0)) *
+            eased,
+        speedMps: to.speedMps,
+      };
+      smoothedRef.current = next;
+      setSmoothedLast(next);
+
+      if (t < 1) {
+        markerRafRef.current = requestAnimationFrame(tick);
+      } else {
+        markerRafRef.current = null;
+      }
+    };
+
+    markerRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (markerRafRef.current != null) {
+        cancelAnimationFrame(markerRafRef.current);
+        markerRafRef.current = null;
+      }
+    };
+  }, [last?.lat, last?.lng, last?.heading, last?.speedMps]);
 
   const historyCoords = useMemo(
     () => routePoints.map((p) => ({ latitude: p.lat, longitude: p.lng })),
@@ -154,12 +206,12 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         </>
       ) : null}
 
-      {last ? (
+      {smoothedLast ? (
         <Marker
-          coordinate={{ latitude: last.lat, longitude: last.lng }}
+          coordinate={{ latitude: smoothedLast.lat, longitude: smoothedLast.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
           centerOffset={{ x: 0, y: 0 }}
-          rotation={last.heading ?? 0}
+          rotation={smoothedLast.heading ?? 0}
           flat
           zIndex={999}
           tracksViewChanges

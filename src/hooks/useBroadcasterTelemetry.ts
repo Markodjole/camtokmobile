@@ -12,7 +12,7 @@ type TelemetryPoint = {
   accuracyMeters?: number;
 };
 
-const HEARTBEAT_MS = 1_000;
+const HEARTBEAT_MS = 600;
 
 /**
  * Owner-side telemetry loop.
