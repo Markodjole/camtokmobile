@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -7,7 +7,6 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
-import Svg, { Path } from "react-native-svg";
 import type { RoutePoint } from "@/types/live";
 
 type DriverRouteOverlay = {
@@ -136,12 +135,12 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
         <>
           <Polyline
             coordinates={railCoords}
-            strokeColor="rgba(29,78,216,0.35)"
+            strokeColor="rgba(29,78,216,0.18)"
             strokeWidth={14}
           />
           <Polyline
             coordinates={railCoords}
-            strokeColor="#3b82f6"
+            strokeColor="rgba(59,130,246,0.45)"
             strokeWidth={7}
           />
         </>
@@ -188,27 +187,38 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           rotation={last.heading ?? 0}
           flat
           zIndex={999}
-          tracksViewChanges={false}
+          tracksViewChanges
         >
-          {/* Arrow pointing north — rotated by `rotation` prop above */}
+          {/* Arrow — pure View so it works reliably in Expo Go */}
           <View
             style={{
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.7,
-              shadowRadius: 4,
-              elevation: 8,
+              width: 44,
+              height: 44,
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
-            <Svg width={32} height={32} viewBox="0 0 32 32">
-              <Path
-                d="M16 2 L30 30 L16 23 L2 30 Z"
-                fill="#ef4444"
-                stroke="white"
-                strokeWidth={2.5}
-                strokeLinejoin="round"
-              />
-            </Svg>
+            {/* White halo for contrast above any line color */}
+            <Text
+              style={{
+                fontSize: 38,
+                color: "white",
+                lineHeight: 40,
+                position: "absolute",
+              }}
+            >
+              ▲
+            </Text>
+            {/* Red arrow on top */}
+            <Text
+              style={{
+                fontSize: 32,
+                color: "#ef4444",
+                lineHeight: 34,
+              }}
+            >
+              ▲
+            </Text>
           </View>
         </Marker>
       ) : null}

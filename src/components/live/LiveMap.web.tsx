@@ -120,29 +120,25 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
       ).addTo(map);
     }
 
-    // Driver arrow — move existing marker and update rotation, don't recreate
+    // Driver arrow — move + re-icon existing marker, don't recreate it
     if (last) {
       const heading = last.heading ?? 0;
-      const arrowHtml = `<div style="width:32px;height:32px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))">
-        <svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(${heading}deg);transform-origin:center">
-          <path d="M16 2 L30 30 L16 23 L2 30 Z" fill="#ef4444" stroke="white" stroke-width="2.5" stroke-linejoin="round"/>
-        </svg>
-      </div>`;
+      const makeArrowIcon = (h: number) =>
+        L.divIcon({
+          className: "",
+          html: `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 3px rgba(0,0,0,.9)) drop-shadow(0 0 6px rgba(0,0,0,.6))">
+            <div style="font-size:40px;line-height:1;transform:rotate(${h}deg);transform-origin:center;color:#ef4444;-webkit-text-stroke:3px white;text-stroke:3px white">▲</div>
+          </div>`,
+          iconSize: [44, 44],
+          iconAnchor: [22, 22],
+        });
 
       if (markerRef.current) {
         markerRef.current.setLatLng([last.lat, last.lng]);
-        // Update rotation in-place by replacing icon HTML
-        const el = markerRef.current.getElement();
-        if (el) el.innerHTML = arrowHtml;
+        markerRef.current.setIcon(makeArrowIcon(heading));
       } else {
-        const icon = L.divIcon({
-          className: "",
-          html: arrowHtml,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        });
         markerRef.current = L.marker([last.lat, last.lng], {
-          icon,
+          icon: makeArrowIcon(heading),
           zIndexOffset: 1000,
         }).addTo(map);
       }
@@ -171,7 +167,7 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
     if (driverRoute?.routePolyline && driverRoute.routePolyline.length > 1) {
       driverPolyRef.current = L.polyline(
         driverRoute.routePolyline.map((p) => [p.lat, p.lng]),
-        { color: "#3b82f6", weight: 7, opacity: 0.55 },
+        { color: "#3b82f6", weight: 8, opacity: 0.35 },
       ).addTo(map);
     }
     if (driverRoute?.turnPoint) {
