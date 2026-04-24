@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import MapView, {
   Circle,
   Marker,
@@ -164,7 +164,7 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
           zIndex={999}
           tracksViewChanges
         >
-          {/* Perfectly centered arrow with text-shadow halo for contrast */}
+          {/* Geometric arrow (not font glyph) keeps center alignment precise */}
           <View
             style={{
               width: 40,
@@ -173,20 +173,31 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
               justifyContent: "center",
             }}
           >
-            <Text
+            <View
               style={{
-                fontSize: 32,
-                lineHeight: 32,
-                color: "#ef4444",
-                textAlign: "center",
-                includeFontPadding: false,
-                textShadowColor: "white",
-                textShadowOffset: { width: 0, height: 0 },
-                textShadowRadius: 4,
+                position: "absolute",
+                width: 0,
+                height: 0,
+                borderLeftWidth: 12,
+                borderRightWidth: 12,
+                borderBottomWidth: 24,
+                borderLeftColor: "transparent",
+                borderRightColor: "transparent",
+                borderBottomColor: "white",
               }}
-            >
-              ▲
-            </Text>
+            />
+            <View
+              style={{
+                width: 0,
+                height: 0,
+                borderLeftWidth: 9,
+                borderRightWidth: 9,
+                borderBottomWidth: 18,
+                borderLeftColor: "transparent",
+                borderRightColor: "transparent",
+                borderBottomColor: "#ef4444",
+              }}
+            />
           </View>
         </Marker>
       ) : null}

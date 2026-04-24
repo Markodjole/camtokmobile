@@ -18,7 +18,7 @@ export function useLiveRoom(roomId: string | null) {
       );
       return res.room;
     },
-    refetchInterval: 2_000,
+    refetchInterval: 1_000,
     staleTime: 1_000,
   });
 }
@@ -34,7 +34,7 @@ export function useRoutePoints(sessionId: string | null) {
       );
       return res.points;
     },
-    refetchInterval: 1_500,
+    refetchInterval: 800,
     staleTime: 1_000,
   });
 }
@@ -50,7 +50,7 @@ export function useDriverRoute(roomId: string | null) {
       );
       return res.instruction;
     },
-    refetchInterval: 1_500,
+    refetchInterval: 800,
     staleTime: 1_000,
   });
 }

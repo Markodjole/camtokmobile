@@ -12,13 +12,13 @@ type TelemetryPoint = {
   accuracyMeters?: number;
 };
 
-const HEARTBEAT_MS = 5_000;
+const HEARTBEAT_MS = 1_000;
 
 /**
  * Owner-side telemetry loop.
  *
  * 1. Starts a foreground GPS watcher (expo-location) and buffers points.
- * 2. Every 5 seconds:
+ * 2. Every 1 second:
  *      - flushes up to 10 points to `/api/live/sessions/:id/location`
  *      - pings `/api/live/sessions/:id/heartbeat`
  * 3. Exposes `routePoints` (last 200) for the local preview.
@@ -90,7 +90,7 @@ export function useBroadcasterTelemetry(params: {
 
     const heartbeat = setInterval(async () => {
       if (!sessionId) return;
-      const batch = pendingRef.current.splice(0, 10);
+      const batch = pendingRef.current.splice(0, 20);
       if (batch.length > 0) {
         try {
           await apiFetch(`/api/live/sessions/${sessionId}/location`, {
