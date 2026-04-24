@@ -1,21 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import type { DriverRouteInstruction, LiveRoomDetail } from "@/types/live";
+import type {
+  DriverRouteInstruction,
+  LiveFeedRow,
+  ProposeMarketInput,
+  RoutePoint,
+} from "@/types/live";
 
 export function useLiveRoom(roomId: string | null) {
   return useQuery({
     queryKey: ["live-room", roomId],
     enabled: !!roomId,
     queryFn: async ({ signal }) => {
-      const res = await apiFetch<{ room: LiveRoomDetail | null }>(
+      const res = await apiFetch<{ room: LiveFeedRow | null }>(
         `/api/live/rooms/${roomId}/state`,
-        { signal },
+        { signal, anonymous: true },
       );
       return res.room;
     },
-    // Poll pretty aggressively so the map + market stays fresh. The Next.js
-    // route is cheap — it's what the web app polls too.
+    refetchInterval: 2_000,
+    staleTime: 1_000,
+  });
+}
+
+export function useRoutePoints(sessionId: string | null) {
+  return useQuery({
+    queryKey: ["route-points", sessionId],
+    enabled: !!sessionId,
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<{ points: RoutePoint[] }>(
+        `/api/live/sessions/${sessionId}/route-points`,
+        { signal, anonymous: true },
+      );
+      return res.points;
+    },
     refetchInterval: 1_500,
+    staleTime: 1_000,
   });
 }
 
@@ -26,11 +46,12 @@ export function useDriverRoute(roomId: string | null) {
     queryFn: async ({ signal }) => {
       const res = await apiFetch<{ instruction: DriverRouteInstruction | null }>(
         `/api/live/rooms/${roomId}/driver-route`,
-        { signal },
+        { signal, anonymous: true },
       );
       return res.instruction;
     },
-    refetchInterval: 2_000,
+    refetchInterval: 1_500,
+    staleTime: 1_000,
   });
 }
 
@@ -40,18 +61,27 @@ export function usePlaceBet(roomId: string | null) {
     mutationFn: async (vars: {
       marketId: string;
       optionId: string;
-      stake: number;
+      stakeAmount: number;
     }) => {
-      return apiFetch<{ ok: true; walletBalance: number }>(
-        `/api/live/rooms/${roomId}/bet`,
-        {
-          method: "POST",
-          body: vars,
-        },
-      );
+      return apiFetch<{ ok: true }>(`/api/live/rooms/${roomId}/bet`, {
+        method: "POST",
+        body: vars,
+      });
     },
     onSuccess: () => {
       if (roomId) qc.invalidateQueries({ queryKey: ["live-room", roomId] });
+    },
+  });
+}
+
+export function useProposeMarket() {
+  return useMutation({
+    mutationFn: async (input: ProposeMarketInput) => {
+      const { roomId, ...payload } = input;
+      return apiFetch<{ proposalId: string }>(
+        `/api/live/rooms/${roomId}/markets/propose`,
+        { method: "POST", body: payload },
+      );
     },
   });
 }

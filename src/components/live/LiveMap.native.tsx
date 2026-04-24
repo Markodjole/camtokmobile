@@ -7,15 +7,32 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
-import type { DriverRouteInstruction, LiveRoutePoint } from "@/types/live";
+import type { RoutePoint } from "@/types/live";
+
+type DriverRouteOverlay = {
+  turnPoint: { lat: number; lng: number };
+  checkpoint: { lat: number; lng: number };
+  routePolyline: Array<{ lat: number; lng: number }>;
+};
 
 type Props = {
-  routePoints: LiveRoutePoint[];
-  driverRoute?: DriverRouteInstruction | null;
+  routePoints: RoutePoint[];
+  driverRoute?: DriverRouteOverlay | null;
   followDriver?: boolean;
 };
 
-export function LiveMap({ routePoints, driverRoute, followDriver = true }: Props) {
+/**
+ * Native map. Draws:
+ *   - history polyline (emerald) over recent GPS snapshots
+ *   - driver rail polyline (blue) emitted from the server
+ *   - upcoming turn point (pulsing blue dot)
+ *   - current driver position (red dot, oriented to heading)
+ */
+export function LiveMap({
+  routePoints,
+  driverRoute,
+  followDriver = true,
+}: Props) {
   const last = routePoints[routePoints.length - 1];
 
   const region: Region | undefined = useMemo(() => {
@@ -57,7 +74,11 @@ export function LiveMap({ routePoints, driverRoute, followDriver = true }: Props
       toolbarEnabled={false}
     >
       {historyCoords.length > 1 ? (
-        <Polyline coordinates={historyCoords} strokeColor="#10b981" strokeWidth={5} />
+        <Polyline
+          coordinates={historyCoords}
+          strokeColor="#10b981"
+          strokeWidth={5}
+        />
       ) : null}
       {railCoords.length > 1 ? (
         <>
@@ -66,7 +87,11 @@ export function LiveMap({ routePoints, driverRoute, followDriver = true }: Props
             strokeColor="rgba(29,78,216,0.35)"
             strokeWidth={14}
           />
-          <Polyline coordinates={railCoords} strokeColor="#3b82f6" strokeWidth={7} />
+          <Polyline
+            coordinates={railCoords}
+            strokeColor="#3b82f6"
+            strokeWidth={7}
+          />
         </>
       ) : null}
       {driverRoute?.turnPoint ? (

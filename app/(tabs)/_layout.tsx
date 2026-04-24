@@ -2,9 +2,10 @@ import { Tabs } from "expo-router";
 import { Text } from "react-native";
 
 /**
- * Bottom tab bar. Each tab renders a small emoji glyph as its icon — we keep
- * this free of icon-library dependencies to minimise native modules.
- * Replace with `@expo/vector-icons` when you want real icons.
+ * Bottom tab bar.
+ *
+ * Tabs: Live · Go · Wallet · Profile
+ * "Go" is a top-level action that lands on the character picker.
  */
 export default function TabsLayout() {
   return (
@@ -23,28 +24,36 @@ export default function TabsLayout() {
         name="live"
         options={{
           title: "Live",
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>●</Text>,
+          tabBarIcon: ({ color }) => (
+            <Text style={{ color, fontSize: 18 }}>●</Text>
+          ),
         }}
       />
       <Tabs.Screen
-        name="feed"
+        name="go"
         options={{
-          title: "Feed",
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>▤</Text>,
+          title: "Go Live",
+          tabBarIcon: ({ color }) => (
+            <Text style={{ color, fontSize: 18 }}>＋</Text>
+          ),
         }}
       />
       <Tabs.Screen
         name="wallet"
         options={{
           title: "Wallet",
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>$</Text>,
+          tabBarIcon: ({ color }) => (
+            <Text style={{ color, fontSize: 18 }}>$</Text>
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>☺</Text>,
+          tabBarIcon: ({ color }) => (
+            <Text style={{ color, fontSize: 18 }}>☺</Text>
+          ),
         }}
       />
     </Tabs>

@@ -1,54 +1,98 @@
-import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, Text, View } from "react-native";
+import React, { useCallback, useRef } from "react";
+import {
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+  type ViewToken,
+} from "react-native";
 import { useRouter } from "expo-router";
-import { Screen } from "@/components/ui/Screen";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLiveFeed } from "@/hooks/useLiveFeed";
-import { formatRelativeTime } from "@/lib/format";
-import type { LiveFeedItem } from "@/types/live";
+import { useCountdown } from "@/hooks/useCountdown";
+import { transportEmoji } from "@/components/live/TransportModeIcon";
+import type { LiveFeedRow, LiveMarketSummary } from "@/types/live";
 
+/**
+ * Mobile twin of `apps/web/src/components/live/LiveFeedShell.tsx` — a
+ * vertical snap-scroll of full-screen "rooms" with the LIVE badge,
+ * character name, transport mode, region, status text, current market
+ * strip, lock countdown, and a "Tap to watch & bet →" CTA.
+ */
 export default function LiveTab() {
   const { data, isLoading, refetch, isRefetching, error } = useLiveFeed();
   const router = useRouter();
+  const visibleIndex = useRef(0);
 
-  if (isLoading) {
+  const onViewable = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const first = viewableItems[0];
+      if (first?.index != null) visibleIndex.current = first.index;
+    },
+    [],
+  );
+
+  if (isLoading && !data) {
     return (
-      <Screen>
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#ffffff" />
-        </View>
-      </Screen>
+      <View className="flex-1 items-center justify-center bg-black">
+        <ActivityIndicator color="#ffffff" />
+      </View>
     );
   }
 
   if (error) {
     return (
-      <Screen>
-        <View className="flex-1 items-center justify-center gap-2">
-          <Text className="text-lg font-semibold text-white">
-            Couldn't load the live feed
-          </Text>
-          <Text className="text-sm text-muted-foreground">
-            {error instanceof Error ? error.message : "Unknown error"}
-          </Text>
-        </View>
-      </Screen>
+      <View className="flex-1 items-center justify-center bg-black px-6">
+        <Text className="text-lg font-semibold text-white">
+          Couldn't load the live feed
+        </Text>
+        <Text className="mt-1 text-center text-sm text-white/60">
+          {error instanceof Error ? error.message : "Unknown error"}
+        </Text>
+      </View>
     );
   }
 
   const items = data ?? [];
+  const height = Dimensions.get("window").height;
+
+  if (items.length === 0) {
+    return (
+      <SafeAreaView edges={["top"]} className="flex-1 bg-black">
+        <View className="flex-1 items-center justify-center px-6">
+          <Text className="text-xl font-semibold text-white">
+            No one is live yet.
+          </Text>
+          <Text className="mt-1 text-center text-sm text-white/60">
+            Check back in a minute, or go live yourself.
+          </Text>
+          <Pressable
+            onPress={() => router.push("/live/go")}
+            className="mt-6 rounded-2xl bg-primary px-5 py-3 active:bg-primary/80"
+          >
+            <Text className="text-sm font-semibold text-white">
+              Start your live stream
+            </Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <Screen padded={false}>
-      <View className="px-4 pb-2 pt-2">
-        <Text className="text-2xl font-bold text-white">Live now</Text>
-        <Text className="text-sm text-muted-foreground">
-          Drivers streaming in real time
-        </Text>
-      </View>
+    <View className="flex-1 bg-black">
       <FlatList
         data={items}
         keyExtractor={(it) => it.roomId}
-        ItemSeparatorComponent={() => <View className="h-3" />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         refreshControl={
           <RefreshControl
             tintColor="#ffffff"
@@ -57,79 +101,96 @@ export default function LiveTab() {
           />
         }
         renderItem={({ item }) => (
-          <LiveRoomCard
-            item={item}
-            onPress={() => router.push(`/room/${item.roomId}`)}
-          />
-        )}
-        ListEmptyComponent={
-          <View className="items-center pt-16">
-            <Text className="text-muted-foreground">
-              Nobody is live right now.
-            </Text>
+          <View style={{ height }}>
+            <LiveSnapSlide row={item} onOpen={() => router.push(`/room/${item.roomId}`)} />
           </View>
-        }
+        )}
       />
-    </Screen>
+    </View>
   );
 }
 
-function LiveRoomCard({
-  item,
-  onPress,
+function LiveSnapSlide({
+  row,
+  onOpen,
 }: {
-  item: LiveFeedItem;
-  onPress: () => void;
+  row: LiveFeedRow;
+  onOpen: () => void;
 }) {
   return (
     <Pressable
-      onPress={onPress}
-      className="overflow-hidden rounded-3xl border border-border bg-muted active:opacity-80"
+      onPress={onOpen}
+      className="relative flex-1 bg-black"
+      accessibilityLabel={`Open live room for ${row.characterName}`}
     >
-      <View className="aspect-video w-full bg-black">
-        {item.thumbnailUrl ? (
-          <Image
-            source={{ uri: item.thumbnailUrl }}
-            className="h-full w-full"
-            resizeMode="cover"
-          />
-        ) : (
-          <View className="h-full w-full items-center justify-center">
-            <Text className="text-4xl">🚗</Text>
-          </View>
-        )}
-        <View className="absolute left-3 top-3 flex-row items-center gap-1 rounded-full bg-accent px-2 py-1">
-          <View className="h-2 w-2 rounded-full bg-white" />
-          <Text className="text-xs font-bold text-white">LIVE</Text>
-        </View>
-        <View className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-1">
-          <Text className="text-xs text-white">{item.viewers} watching</Text>
-        </View>
-      </View>
-      <View className="flex-row items-center gap-3 p-3">
-        {item.characterAvatarUrl ? (
-          <Image
-            source={{ uri: item.characterAvatarUrl }}
-            className="h-10 w-10 rounded-full"
-          />
-        ) : (
-          <View className="h-10 w-10 items-center justify-center rounded-full bg-border">
-            <Text className="font-bold text-white">
-              {item.characterName.slice(0, 1)}
+      {/* Top gradient scrim */}
+      <View className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-black/70" />
+      {/* Bottom gradient scrim */}
+      <View className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-black/80" />
+
+      <SafeAreaView edges={["bottom"]} className="flex-1 justify-end px-5 pb-16">
+        <View className="flex-row items-center gap-2">
+          <View className="rounded bg-red-500/30 px-2 py-0.5">
+            <Text className="text-[11px] font-bold tracking-wider text-red-400">
+              LIVE
             </Text>
           </View>
-        )}
-        <View className="flex-1">
-          <Text numberOfLines={1} className="text-base font-semibold text-white">
-            {item.title || item.characterName}
-          </Text>
-          <Text numberOfLines={1} className="text-xs text-muted-foreground">
-            {item.characterName}
-            {item.city ? ` • ${item.city}` : ""} •{" "}
-            {formatRelativeTime(item.startedAt)}
+          <Text className="text-lg font-semibold text-white">
+            {row.characterName}
           </Text>
         </View>
-      </View>
+
+        <View className="mt-1 flex-row items-center gap-2">
+          <Text className="text-sm text-white/80">
+            {transportEmoji(row.transportMode)}{" "}
+            {String(row.transportMode).replace("_", " ")}
+          </Text>
+          <Text className="text-xs text-white/50">
+            · {row.viewerCount} watching
+          </Text>
+        </View>
+
+        {row.statusText ? (
+          <Text numberOfLines={2} className="mt-2 text-sm text-white/85">
+            {row.statusText}
+          </Text>
+        ) : null}
+
+        <Text className="mt-1 text-xs text-white/50">
+          {row.regionLabel ?? "Unknown area"}
+          {row.placeType ? ` · ${row.placeType}` : ""}
+        </Text>
+
+        <MarketStrip market={row.currentMarket} />
+
+        <Text className="mt-6 text-center text-sm font-medium text-primary">
+          Tap to watch & bet →
+        </Text>
+      </SafeAreaView>
     </Pressable>
   );
+}
+
+function MarketStrip({ market }: { market: LiveMarketSummary | null }) {
+  if (!market) {
+    return (
+      <Text className="mt-3 text-xs text-white/45">Waiting for next market…</Text>
+    );
+  }
+  return (
+    <View className="mt-3 flex-row items-center gap-2">
+      <View className="rounded bg-primary/25 px-2 py-1">
+        <Text className="text-xs font-medium text-white">{market.title}</Text>
+      </View>
+      <LockCountdown locksAt={market.locksAt} />
+    </View>
+  );
+}
+
+function LockCountdown({ locksAt }: { locksAt: string }) {
+  const { secondsLeft, label } = useCountdown(locksAt);
+  if (secondsLeft <= 0) {
+    return <Text className="text-xs text-white/50">locked</Text>;
+  }
+  return <Text className="text-xs text-white/50">closes in {label}</Text>;
 }

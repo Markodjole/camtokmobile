@@ -8,14 +8,8 @@ import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 
 /**
- * Root layout.
- *
- * Composes all global providers in the required order:
- *   GestureHandler → SafeArea → Query → Auth → Router
- *
- * The inner `AuthGate` watches the Supabase session and redirects between
- * the `(auth)` stack and the `(tabs)` stack so a signed-out user can never
- * land on a protected screen and vice versa.
+ * Root layout — global providers + the auth gate that redirects between
+ * the (auth) and (tabs) stacks.
  */
 export default function RootLayout() {
   return (
@@ -48,10 +42,23 @@ function AuthGate() {
   }, [session, isLoading, segments, router]);
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: "#000" },
+      }}
+    >
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="room/[roomId]" options={{ presentation: "fullScreenModal" }} />
+      <Stack.Screen
+        name="room/[roomId]"
+        options={{ presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen name="live/go/index" options={{ presentation: "modal" }} />
+      <Stack.Screen
+        name="live/go/[characterId]"
+        options={{ presentation: "fullScreenModal" }}
+      />
     </Stack>
   );
 }

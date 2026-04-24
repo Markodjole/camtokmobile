@@ -48,7 +48,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:3000",
+      "apiBaseUrl": "https://camtok-web.vercel.app",
       "supabaseUrl": "",
       "supabaseAnonKey": ""
     }

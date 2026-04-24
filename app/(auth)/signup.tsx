@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, Text, View } from "react-native";
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +9,7 @@ import { useAuth } from "@/providers/AuthProvider";
 
 export default function SignupScreen() {
   const { signUp } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,11 +21,16 @@ export default function SignupScreen() {
     }
     setLoading(true);
     try {
-      await signUp(email.trim(), password);
-      Alert.alert(
-        "Check your email",
-        "We sent a confirmation link. After confirming, come back and sign in.",
-      );
+      const result = await signUp(email.trim(), password);
+      if (result.requiresEmailConfirmation) {
+        Alert.alert(
+          "Check your email",
+          "We sent a confirmation link. After confirming, sign in to continue.",
+          [{ text: "OK", onPress: () => router.replace("/(auth)/login") }],
+        );
+        return;
+      }
+      router.replace("/(tabs)/live");
     } catch (e) {
       Alert.alert(
         "Sign-up failed",

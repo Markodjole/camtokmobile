@@ -13,7 +13,10 @@ type AuthState = {
   user: User | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (
+    email: string,
+    password: string,
+  ) => Promise<{ requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
 };
 
@@ -59,8 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       async signUp(email, password) {
         const supabase = getSupabase();
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
+        return { requiresEmailConfirmation: !data.session };
       },
       async signOut() {
         const supabase = getSupabase();
