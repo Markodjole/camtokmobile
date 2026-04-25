@@ -209,40 +209,40 @@ function LiveMapInner({ routePoints, driverRoute, followDriver = true }: Props) 
       ) : null}
 
       {railCoords.length > 1 ? (
-        <>
-          <Polyline
-            coordinates={railCoords}
-            strokeColor="rgba(29,78,216,0.4)"
-            strokeWidth={14}
-          />
-          <Polyline
-            coordinates={railCoords}
-            strokeColor="rgba(59,130,246,0.85)"
-            strokeWidth={7}
-          />
-        </>
+        <Polyline
+          coordinates={railCoords}
+          strokeColor="rgba(29,78,216,0.4)"
+          strokeWidth={14}
+        />
+      ) : null}
+      {railCoords.length > 1 ? (
+        <Polyline
+          coordinates={railCoords}
+          strokeColor="rgba(59,130,246,0.85)"
+          strokeWidth={7}
+        />
       ) : null}
 
       {driverRoute?.turnPoint ? (
-        <>
-          <Circle
-            center={{
-              latitude: driverRoute.turnPoint.lat,
-              longitude: driverRoute.turnPoint.lng,
-            }}
-            radius={16}
-            strokeColor="#2563eb"
-            strokeWidth={2}
-            fillColor="rgba(59,130,246,0.22)"
-          />
-          <Marker
-            coordinate={{
-              latitude: driverRoute.turnPoint.lat,
-              longitude: driverRoute.turnPoint.lng,
-            }}
-            pinColor="#6366f1"
-          />
-        </>
+        <Circle
+          center={{
+            latitude: driverRoute.turnPoint.lat,
+            longitude: driverRoute.turnPoint.lng,
+          }}
+          radius={16}
+          strokeColor="#2563eb"
+          strokeWidth={2}
+          fillColor="rgba(59,130,246,0.22)"
+        />
+      ) : null}
+      {driverRoute?.turnPoint ? (
+        <Marker
+          coordinate={{
+            latitude: driverRoute.turnPoint.lat,
+            longitude: driverRoute.turnPoint.lng,
+          }}
+          pinColor="#6366f1"
+        />
       ) : null}
 
       {smoothedLast ? (

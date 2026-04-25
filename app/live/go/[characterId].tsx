@@ -123,7 +123,7 @@ export default function GoLiveControlScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
         {!sessionId ? (
-          <>
+          <View style={{ gap: 16 }}>
             <Card>
               <CardTitle>Transport mode</CardTitle>
               <CardDescription>
@@ -175,10 +175,18 @@ export default function GoLiveControlScreen() {
               loading={starting}
               fullWidth
             />
-          </>
+          </View>
         ) : (
-          <>
-            <View className="h-[56vh] min-h-[320px] overflow-hidden rounded-3xl border border-border">
+          <View style={{ gap: 16 }}>
+            <View
+              style={{
+                height: 360,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: "#27272a",
+                backgroundColor: "#000",
+              }}
+            >
               <BroadcasterCameraPreview
                 liveSessionId={sessionId}
                 facing="front"
@@ -213,7 +221,15 @@ export default function GoLiveControlScreen() {
               </View>
             </Card>
 
-            <View className="h-48 overflow-hidden rounded-3xl border border-border">
+            <View
+              style={{
+                height: 192,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: "#27272a",
+                backgroundColor: "#000",
+              }}
+            >
               <LiveMap routePoints={routePoints} />
             </View>
 
@@ -236,7 +252,7 @@ export default function GoLiveControlScreen() {
                 fullWidth
               />
             ) : null}
-          </>
+          </View>
         )}
       </ScrollView>
     </Screen>
