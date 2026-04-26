@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -71,26 +72,50 @@ function WebRtcPreview({
   facing,
   style,
 }: Props & { rtc: WebRtcRuntime }) {
+  const setSession = useLiveBroadcastStore((s) => s.setSession);
+  const setLocalStream = useLiveBroadcastStore((s) => s.setLocalStream);
+  const [permission, requestPermission] = useCameraPermissions();
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cleanupBroadcast = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      void requestPermission();
+    }
+  }, [permission, requestPermission]);
+
+  useEffect(() => {
+    if (!permission?.granted) return;
     let active = true;
     let current: MediaStream | null = null;
     const start = async () => {
       try {
-        const s = await runtime.mediaDevices.getUserMedia({
-          audio: true,
-          video: {
-            facingMode: facing === "front" ? "user" : "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        });
+        const s = (await Promise.race([
+          runtime.mediaDevices.getUserMedia({
+            audio: true,
+            video: {
+              facingMode: facing === "front" ? "user" : "environment",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Camera startup timed out. Please ensure camera and microphone permissions are granted.",
+                  ),
+                ),
+              12000,
+            ),
+          ),
+        ])) as MediaStream;
         if (!active) { s.getTracks().forEach((t) => t.stop?.()); return; }
         current = s;
         setStream(s);
+        setError(null);
       } catch (e) {
         if (!active) return;
         setError(e instanceof Error ? e.message : "Could not access camera/mic.");
@@ -102,7 +127,17 @@ function WebRtcPreview({
       current?.getTracks().forEach((t) => t.stop?.());
       setStream(null);
     };
-  }, [facing, runtime]);
+  }, [facing, permission?.granted, runtime]);
+
+  useEffect(() => {
+    setSession(liveSessionId ?? null);
+    return () => setSession(null);
+  }, [liveSessionId, setSession]);
+
+  useEffect(() => {
+    setLocalStream(stream as unknown as { toURL: () => string } | null);
+    return () => setLocalStream(null);
+  }, [setLocalStream, stream]);
 
   useEffect(() => {
     if (!liveSessionId || !stream) return;
@@ -118,6 +153,35 @@ function WebRtcPreview({
   }, [liveSessionId, stream]);
 
   const streamURL = stream ? (stream as unknown as { toURL: () => string }).toURL() : null;
+
+  if (!permission) {
+    return (
+      <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }, style]}>
+        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Requesting camera…</Text>
+      </View>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 16 }, style]}>
+        <Text style={{ color: "white", fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+          Camera and microphone permissions are required to broadcast.
+        </Text>
+        <Pressable
+          onPress={() => void requestPermission()}
+          style={{
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            borderRadius: 999,
+            backgroundColor: "rgba(255,255,255,0.15)",
+          }}
+        >
+          <Text style={{ color: "white", fontSize: 12 }}>Grant permission</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>

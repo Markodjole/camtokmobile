@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { View } from "react-native";
+import { AppBottomBar, AppTopBar } from "@/components/navigation/AppChrome";
 
 export default function RootLayout() {
   return (
@@ -39,23 +40,29 @@ function AuthGate() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: "#000" },
-      }}
-    >
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen
-        name="room/[roomId]"
-        options={{ presentation: "fullScreenModal" }}
-      />
-      <Stack.Screen name="live/go/index" options={{ presentation: "modal" }} />
-      <Stack.Screen
-        name="live/go/[characterId]"
-        options={{ presentation: "fullScreenModal" }}
-      />
-    </Stack>
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <AppTopBar />
+      <View style={{ flex: 1 }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: "#000" },
+          }}
+        >
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen
+            name="room/[roomId]"
+            options={{ presentation: "fullScreenModal" }}
+          />
+          <Stack.Screen name="live/go/index" options={{ presentation: "modal" }} />
+          <Stack.Screen
+            name="live/go/[characterId]"
+            options={{ presentation: "fullScreenModal" }}
+          />
+        </Stack>
+      </View>
+      <AppBottomBar />
+    </View>
   );
 }

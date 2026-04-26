@@ -16,7 +16,8 @@
         "gradleCommand": ":app:assembleDebug"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     },
     "preview": {
@@ -25,13 +26,15 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     }
   },

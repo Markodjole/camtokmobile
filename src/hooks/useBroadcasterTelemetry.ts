@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { apiFetch } from "@/lib/api";
 import type { RoutePoint, TransportMode } from "@/types/live";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 
 type TelemetryPoint = {
   recordedAt: string;
@@ -31,10 +32,26 @@ export function useBroadcasterTelemetry(params: {
   onError?: (message: string) => void;
 }) {
   const { sessionId, transportMode, onError } = params;
+  const setSession = useLiveBroadcastStore((s) => s.setSession);
+  const setStoreRoutePoints = useLiveBroadcastStore((s) => s.setRoutePoints);
+  const clearStore = useLiveBroadcastStore((s) => s.clear);
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const pendingRef = useRef<TelemetryPoint[]>([]);
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
+
+  useEffect(() => {
+    setSession(sessionId ?? null);
+    if (!sessionId) {
+      setStoreRoutePoints([]);
+      setRoutePoints([]);
+      setHasPermission(null);
+    }
+  }, [sessionId, setSession, setStoreRoutePoints]);
+
+  useEffect(() => {
+    setStoreRoutePoints(routePoints);
+  }, [routePoints, setStoreRoutePoints]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -50,12 +67,45 @@ export function useBroadcasterTelemetry(params: {
         onError?.("Location permission denied");
         return;
       }
+      // Seed map immediately so the broadcaster sees current location right away.
+      // If this one-off call fails, keep going and start the continuous watcher.
+      try {
+        const seed = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!cancelled) {
+          const seedPoint: RoutePoint = {
+            lat: seed.coords.latitude,
+            lng: seed.coords.longitude,
+            heading:
+              seed.coords.heading != null && !Number.isNaN(seed.coords.heading)
+                ? seed.coords.heading
+                : undefined,
+            speedMps:
+              seed.coords.speed != null && !Number.isNaN(seed.coords.speed)
+                ? seed.coords.speed
+                : undefined,
+          };
+          setRoutePoints((prev) => [...prev.slice(-199), seedPoint]);
+          pendingRef.current.push({
+            recordedAt: new Date(seed.timestamp ?? Date.now()).toISOString(),
+            lat: seed.coords.latitude,
+            lng: seed.coords.longitude,
+            speedMps: seedPoint.speedMps,
+            headingDeg: seedPoint.heading,
+            accuracyMeters: seed.coords.accuracy ?? undefined,
+          });
+        }
+      } catch {
+        // Do not fail live telemetry just because the initial seed failed.
+      }
+
       try {
         watcherRef.current = await Location.watchPositionAsync(
           {
-            accuracy: Location.Accuracy.BestForNavigation,
-            timeInterval: 1_000,
-            distanceInterval: 1,
+            accuracy: Location.Accuracy.Highest,
+            timeInterval: 450,
+            distanceInterval: 0,
           },
           (pos) => {
             const point: RoutePoint = {
@@ -82,7 +132,7 @@ export function useBroadcasterTelemetry(params: {
           },
         );
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Location error");
+        onError?.(e instanceof Error ? e.message : "Location watcher failed");
       }
     }
 
@@ -116,8 +166,11 @@ export function useBroadcasterTelemetry(params: {
       clearInterval(heartbeat);
       watcherRef.current?.remove();
       watcherRef.current = null;
+      if (!sessionId) {
+        clearStore();
+      }
     };
-  }, [sessionId, transportMode, onError]);
+  }, [sessionId, transportMode, onError, clearStore]);
 
   return { routePoints, hasPermission };
 }

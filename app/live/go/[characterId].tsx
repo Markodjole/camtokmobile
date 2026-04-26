@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/api";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
+import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import type { TransportMode } from "@/types/live";
 
 const MODES: { id: TransportMode; label: string; emoji: string }[] = [
@@ -43,6 +44,7 @@ export default function GoLiveControlScreen() {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [mapResetKey, setMapResetKey] = useState(0);
 
   const onTelemetryError = useCallback((msg: string) => setError(msg), []);
   const { routePoints, hasPermission } = useBroadcasterTelemetry({
@@ -54,6 +56,19 @@ export default function GoLiveControlScreen() {
   // Pre-fetch map tiles for current GPS location as soon as we have a point
   const lastPoint = routePoints[routePoints.length - 1];
   useMapTilePreload(lastPoint?.lat, lastPoint?.lng);
+
+  const mapStale = useLiveMapStale({
+    lat: lastPoint?.lat,
+    lng: lastPoint?.lng,
+    requireMovement: true,
+    speedMps: lastPoint?.speedMps,
+    staleAfterMs: 10_000,
+    enabled: !!sessionId && routePoints.length > 0,
+  });
+
+  const refreshMap = useCallback(() => {
+    setMapResetKey((k) => k + 1);
+  }, []);
 
   async function goLive() {
     if (!characterId) return;
@@ -228,9 +243,53 @@ export default function GoLiveControlScreen() {
                 borderWidth: 1,
                 borderColor: "#27272a",
                 backgroundColor: "#000",
+                position: "relative",
+                overflow: "hidden",
               }}
             >
-              <LiveMap routePoints={routePoints} />
+              <LiveMap routePoints={routePoints} mapResetKey={mapResetKey} />
+              {sessionId ? (
+                <Pressable
+                  onPress={refreshMap}
+                  accessibilityLabel="Refresh map"
+                  style={{
+                    position: "absolute",
+                    right: 8,
+                    top: 8,
+                    zIndex: 20,
+                    height: 36,
+                    minWidth: 36,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 9999,
+                    backgroundColor: "rgba(0,0,0,0.7)",
+                    paddingHorizontal: 8,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 18 }}>↻</Text>
+                </Pressable>
+              ) : null}
+              {mapStale ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 8,
+                    right: 48,
+                    top: 8,
+                    zIndex: 20,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: "rgba(245,158,11,0.45)",
+                    backgroundColor: "rgba(245,158,11,0.18)",
+                    paddingHorizontal: 8,
+                    paddingVertical: 6,
+                  }}
+                >
+                  <Text style={{ color: "rgba(255,237,213,0.95)", fontSize: 11 }}>
+                    Map may be stuck — tap ↻
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             {error ? (
@@ -248,7 +307,11 @@ export default function GoLiveControlScreen() {
               <Button
                 label="Open room view"
                 variant="secondary"
-                onPress={() => router.push(`/room/${roomId}`)}
+                onPress={() =>
+                  router.push(
+                    `/room/${roomId}?sessionId=${encodeURIComponent(sessionId)}`,
+                  )
+                }
                 fullWidth
               />
             ) : null}

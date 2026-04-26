@@ -16,14 +16,25 @@ import { env } from "./env";
 const secureStorage = {
   async getItem(key: string) {
     try {
-      return await SecureStore.getItemAsync(key);
+      const secureValue = await SecureStore.getItemAsync(key);
+      if (secureValue != null) return secureValue;
+      return await AsyncStorage.getItem(key);
     } catch {
       return AsyncStorage.getItem(key);
     }
   },
   async setItem(key: string, value: string) {
+    // SecureStore warns for values around/over 2KB. Supabase session payloads
+    // can occasionally exceed that, so store larger values in AsyncStorage.
+    const shouldUseAsyncStorage = value.length > 1800;
     try {
-      await SecureStore.setItemAsync(key, value);
+      if (shouldUseAsyncStorage) {
+        await AsyncStorage.setItem(key, value);
+        await SecureStore.deleteItemAsync(key);
+      } else {
+        await SecureStore.setItemAsync(key, value);
+        await AsyncStorage.removeItem(key);
+      }
     } catch {
       await AsyncStorage.setItem(key, value);
     }
@@ -31,6 +42,7 @@ const secureStorage = {
   async removeItem(key: string) {
     try {
       await SecureStore.deleteItemAsync(key);
+      await AsyncStorage.removeItem(key);
     } catch {
       await AsyncStorage.removeItem(key);
     }

@@ -14,6 +14,7 @@ type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
   followDriver?: boolean;
+  mapResetKey?: number;
 };
 
 /**
@@ -24,7 +25,7 @@ type Props = {
  * (routeKey/driverKey in the effect dep array), causing 1-3 s tile-reload
  * flashes. Now tiles stay in memory and only the polyline / marker move.
  */
-export function LiveMap({ routePoints, driverRoute }: Props) {
+export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
   // Keep Leaflet instance alive in refs
   const containerRef = useRef<any>(null);
   const mapRef = useRef<any>(null);
@@ -34,6 +35,8 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
   const turnCircleRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const initializedRef = useRef(false);
+  const routePointsRef = useRef(routePoints);
+  routePointsRef.current = routePoints;
 
   // ── Inject Leaflet CSS once ────────────────────────────────────────────
   useEffect(() => {
@@ -147,6 +150,18 @@ export function LiveMap({ routePoints, driverRoute }: Props) {
       map.panTo([last.lat, last.lng], { animate: true, duration: 0.45, easeLinearity: 0.4 });
     }
   }, [routePoints]);
+
+  // User-triggered: snap map view to latest point (recovery when stuck)
+  useEffect(() => {
+    if (mapResetKey < 1) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const pts = routePointsRef.current;
+    const last = pts[pts.length - 1];
+    if (last) {
+      map.panTo([last.lat, last.lng], { animate: true, duration: 0.35, easeLinearity: 0.4 });
+    }
+  }, [mapResetKey]);
 
   // ── Update driver-route overlay imperatively ───────────────────────────
   useEffect(() => {
