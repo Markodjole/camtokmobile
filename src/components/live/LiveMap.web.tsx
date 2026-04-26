@@ -17,13 +17,13 @@ type Props = {
   mapResetKey?: number;
 };
 
-const FORWARD_EPS = -0.00003;
+const FORWARD_EPS = 0;
 
 function directionalRailPolyline(
   polyline: Array<{ lat: number; lng: number }>,
   vehicle: RoutePoint | undefined,
 ) {
-  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return polyline;
+  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return [];
 
   const headingRad = (vehicle.heading * Math.PI) / 180;
   const hLat = Math.cos(headingRad);
@@ -31,8 +31,6 @@ function directionalRailPolyline(
 
   let aheadIdx = -1;
   let aheadBestDist = Number.POSITIVE_INFINITY;
-  let nearestIdx = 0;
-  let nearestBestDist = Number.POSITIVE_INFINITY;
 
   for (let i = 0; i < polyline.length; i += 1) {
     const p = polyline[i];
@@ -41,17 +39,14 @@ function directionalRailPolyline(
     const dist2 = dLat * dLat + dLng * dLng;
     const forwardness = dLat * hLat + dLng * hLng;
 
-    if (dist2 < nearestBestDist) {
-      nearestBestDist = dist2;
-      nearestIdx = i;
-    }
     if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
       aheadBestDist = dist2;
       aheadIdx = i;
     }
   }
 
-  const anchorIdx = aheadIdx >= 0 ? aheadIdx : nearestIdx;
+  if (aheadIdx < 0) return [];
+  const anchorIdx = aheadIdx;
   const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
   const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
 
@@ -69,7 +64,16 @@ function directionalRailPolyline(
     ? polyline.slice(anchorIdx)
     : polyline.slice(0, anchorIdx + 1).reverse();
 
-  return sliced.length > 1 ? sliced : polyline;
+  // Hard rule: keep only points that are in front of the vehicle.
+  const forwardOnly = sliced.filter((p, idx) => {
+    if (idx === 0) return true;
+    const dLat = p.lat - vehicle.lat;
+    const dLng = p.lng - vehicle.lng;
+    const forwardness = dLat * hLat + dLng * hLng;
+    return forwardness >= FORWARD_EPS;
+  });
+
+  return forwardOnly.length > 1 ? forwardOnly : [];
 }
 
 /**
@@ -178,17 +182,17 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
       ).addTo(map);
     }
 
-    // Driver car icon — move + re-icon existing marker, don't recreate it
+    // Driver marker — basic centered red dot
     if (last) {
       const makeDotIcon = () =>
         L.divIcon({
           className: "",
           html: `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center">
-            <div style="width:36px;height:36px;border-radius:9999px;background:rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;font-size:24px;line-height:1">🚗</div>
+            <div style="width:14px;height:14px;border-radius:9999px;background:#ef4444;border:2px solid rgba(255,255,255,0.9)">
+            </div>
           </div>`,
           iconSize: [44, 44],
-          // Visual calibration: Leaflet marker div appears ~1 px right.
-          iconAnchor: [21, 22],
+          iconAnchor: [22, 22],
         });
 
       if (markerRef.current) {

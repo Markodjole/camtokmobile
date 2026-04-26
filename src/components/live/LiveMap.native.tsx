@@ -6,7 +6,7 @@ import MapView, {
   PROVIDER_DEFAULT,
   type Region,
 } from "react-native-maps";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import type { RoutePoint } from "@/types/live";
 
 type DriverRouteOverlay = {
@@ -56,7 +56,7 @@ const CAMERA_MIN_INTERVAL_MS = 60;
 const CAMERA_HEADING_BLEND = 0.16;
 // Maximum camera heading rotation speed (deg/sec) to avoid snap turns.
 const CAMERA_MAX_TURN_RATE_DPS = 120;
-const FORWARD_EPS = -0.00003;
+const FORWARD_EPS = 0;
 
 function shortestAngle(prev: number, next: number): number {
   let d = ((next - prev + 540) % 360) - 180;
@@ -67,7 +67,7 @@ function directionalRailPolyline(
   polyline: Array<{ lat: number; lng: number }>,
   vehicle: { lat: number; lng: number; heading?: number } | null,
 ) {
-  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return polyline;
+  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return [];
 
   const headingRad = (vehicle.heading * Math.PI) / 180;
   const hLat = Math.cos(headingRad); // north/south axis
@@ -75,8 +75,6 @@ function directionalRailPolyline(
 
   let aheadIdx = -1;
   let aheadBestDist = Number.POSITIVE_INFINITY;
-  let nearestIdx = 0;
-  let nearestBestDist = Number.POSITIVE_INFINITY;
 
   for (let i = 0; i < polyline.length; i += 1) {
     const p = polyline[i];
@@ -85,17 +83,14 @@ function directionalRailPolyline(
     const dist2 = dLat * dLat + dLng * dLng;
     const forwardness = dLat * hLat + dLng * hLng;
 
-    if (dist2 < nearestBestDist) {
-      nearestBestDist = dist2;
-      nearestIdx = i;
-    }
     if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
       aheadBestDist = dist2;
       aheadIdx = i;
     }
   }
 
-  const anchorIdx = aheadIdx >= 0 ? aheadIdx : nearestIdx;
+  if (aheadIdx < 0) return [];
+  const anchorIdx = aheadIdx;
   const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
   const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
 
@@ -113,7 +108,16 @@ function directionalRailPolyline(
     ? polyline.slice(anchorIdx)
     : polyline.slice(0, anchorIdx + 1).reverse();
 
-  return sliced.length > 1 ? sliced : polyline;
+  // Hard rule: keep only route points that are in front of the vehicle.
+  const forwardOnly = sliced.filter((p, idx) => {
+    if (idx === 0) return true; // keep anchor point for continuity
+    const dLat = p.lat - vehicle.lat;
+    const dLng = p.lng - vehicle.lng;
+    const forwardness = dLat * hLat + dLng * hLng;
+    return forwardness >= FORWARD_EPS;
+  });
+
+  return forwardOnly.length > 1 ? forwardOnly : [];
 }
 
 /**
@@ -494,7 +498,16 @@ function LiveMapInner({
             justifyContent: "center",
           }}
         >
-          <Text style={{ fontSize: 30 }}>🚗</Text>
+          <View
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 999,
+              backgroundColor: "#ef4444",
+              borderWidth: 2,
+              borderColor: "rgba(255,255,255,0.9)",
+            }}
+          />
         </View>
       ) : null}
     </View>

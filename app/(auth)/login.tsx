@@ -34,14 +34,14 @@ export default function LoginScreen() {
         className="flex-1 justify-center"
       >
         <View className="mb-8 items-center">
-          <Text className="text-4xl font-bold tracking-tight text-white">
+          <Text className="text-5xl font-black tracking-tight text-white">
             <Text className="text-primary">Cam</Text>Tok
           </Text>
-          <Text className="mt-2 text-sm text-muted-foreground">
+          <Text className="mt-2 text-sm text-zinc-400">
             Watch. Predict. Win.
           </Text>
         </View>
-        <Card>
+        <Card className="border-blue-500/25 bg-zinc-900/92">
           <CardTitle>Welcome back</CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
           <View className="mt-4 gap-3">

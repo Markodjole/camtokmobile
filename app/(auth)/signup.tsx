@@ -47,7 +47,13 @@ export default function SignupScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         className="flex-1 justify-center"
       >
-        <Card>
+        <View className="mb-8 items-center">
+          <Text className="text-5xl font-black tracking-tight text-white">
+            <Text className="text-primary">Cam</Text>Tok
+          </Text>
+          <Text className="mt-2 text-sm text-zinc-400">Create your live profile</Text>
+        </View>
+        <Card className="border-blue-500/25 bg-zinc-900/92">
           <CardTitle>Create account</CardTitle>
           <CardDescription>It only takes a minute.</CardDescription>
           <View className="mt-4 gap-3">

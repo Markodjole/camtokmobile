@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLiveFeed } from "@/hooks/useLiveFeed";
 import { useCountdown } from "@/hooks/useCountdown";
 import { transportEmoji } from "@/components/live/TransportModeIcon";
+import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import type { LiveFeedRow, LiveMarketSummary } from "@/types/live";
 
@@ -85,6 +86,21 @@ export default function LiveTab() {
 
   return (
     <View className="flex-1 bg-black">
+      <SafeAreaView
+        pointerEvents="box-none"
+        edges={["top"]}
+        className="absolute inset-x-0 top-0 z-50 px-4"
+      >
+        <View className="mt-2 flex-row items-center justify-between">
+          <LiveModeSwitch />
+          <Pressable
+            onPress={blurOnWeb(() => router.push("/live/go"))}
+            className="rounded-full border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5"
+          >
+            <Text className="text-xs font-bold text-emerald-200">Go live</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
       <FlatList
         data={items}
         keyExtractor={(it) => it.roomId}
@@ -128,13 +144,13 @@ function LiveSnapSlide({
       accessibilityLabel={`Open live room for ${row.characterName}`}
     >
       {/* Top gradient scrim */}
-      <View className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-black/70" />
+      <View className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-black/75" />
       {/* Bottom gradient scrim */}
-      <View className="pointer-events-none absolute inset-x-0 bottom-0 h-56 bg-black/80" />
+      <View className="pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-black/85" />
 
-      <SafeAreaView edges={["bottom"]} className="flex-1 justify-end px-5 pb-16">
+      <SafeAreaView edges={["bottom"]} className="flex-1 justify-end px-5 pb-28">
         <View className="flex-row items-center gap-2">
-          <View className="rounded bg-red-500/30 px-2 py-0.5">
+          <View className="rounded-full border border-red-400/35 bg-red-500/30 px-2.5 py-1">
             <Text className="text-[11px] font-bold tracking-wider text-red-400">
               LIVE
             </Text>
@@ -167,8 +183,8 @@ function LiveSnapSlide({
 
         <MarketStrip market={row.currentMarket} />
 
-        <Text className="mt-6 text-center text-sm font-medium text-primary">
-          Tap to watch & bet →
+        <Text className="mt-6 text-center text-sm font-bold tracking-wide text-blue-300">
+          Tap to watch & bet
         </Text>
       </SafeAreaView>
     </Pressable>

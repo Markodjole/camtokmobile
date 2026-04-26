@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { LiveMap } from "@/components/live/LiveMap";
 import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
+import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { apiFetch } from "@/lib/api";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
@@ -119,6 +120,9 @@ export default function GoLiveControlScreen() {
     <Screen padded={false}>
       <Stack.Screen options={{ headerShown: false }} />
 
+      <View className="px-4 pt-2">
+        <LiveModeSwitch />
+      </View>
       <View className="flex-row items-center gap-3 px-4 pt-2">
         <Pressable
           onPress={blurOnWeb(() => router.back())}

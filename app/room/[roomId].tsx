@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
 import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
+import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
 import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
@@ -316,6 +317,9 @@ export default function RoomScreen() {
 
       {/* Top bar */}
       <SafeAreaView edges={["top"]} className="absolute inset-x-0 top-0 z-40">
+        <View className="px-4 pb-1 pt-1">
+          <LiveModeSwitch />
+        </View>
         <View className="flex-row items-center gap-2 px-4 py-2">
           <Pressable
             onPress={blurOnWeb(() => router.back())}

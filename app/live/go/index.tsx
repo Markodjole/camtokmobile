@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { Stack, useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
+import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 
 /**
@@ -17,6 +18,9 @@ export default function GoLivePickerScreen() {
     <Screen>
       <Stack.Screen options={{ headerShown: false }} />
 
+      <View className="mb-3 flex-row items-center justify-between gap-3">
+        <LiveModeSwitch />
+      </View>
       <View className="mb-2 flex-row items-center gap-3">
         <Pressable
           onPress={blurOnWeb(() => router.back())}
