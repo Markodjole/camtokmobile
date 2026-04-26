@@ -56,10 +56,64 @@ const CAMERA_MIN_INTERVAL_MS = 60;
 const CAMERA_HEADING_BLEND = 0.16;
 // Maximum camera heading rotation speed (deg/sec) to avoid snap turns.
 const CAMERA_MAX_TURN_RATE_DPS = 120;
+const FORWARD_EPS = -0.00003;
 
 function shortestAngle(prev: number, next: number): number {
   let d = ((next - prev + 540) % 360) - 180;
   return prev + d;
+}
+
+function directionalRailPolyline(
+  polyline: Array<{ lat: number; lng: number }>,
+  vehicle: { lat: number; lng: number; heading?: number } | null,
+) {
+  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return polyline;
+
+  const headingRad = (vehicle.heading * Math.PI) / 180;
+  const hLat = Math.cos(headingRad); // north/south axis
+  const hLng = Math.sin(headingRad); // east/west axis
+
+  let aheadIdx = -1;
+  let aheadBestDist = Number.POSITIVE_INFINITY;
+  let nearestIdx = 0;
+  let nearestBestDist = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < polyline.length; i += 1) {
+    const p = polyline[i];
+    const dLat = p.lat - vehicle.lat;
+    const dLng = p.lng - vehicle.lng;
+    const dist2 = dLat * dLat + dLng * dLng;
+    const forwardness = dLat * hLat + dLng * hLng;
+
+    if (dist2 < nearestBestDist) {
+      nearestBestDist = dist2;
+      nearestIdx = i;
+    }
+    if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
+      aheadBestDist = dist2;
+      aheadIdx = i;
+    }
+  }
+
+  const anchorIdx = aheadIdx >= 0 ? aheadIdx : nearestIdx;
+  const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
+  const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
+
+  const scoreNext = next
+    ? (next.lat - polyline[anchorIdx].lat) * hLat +
+      (next.lng - polyline[anchorIdx].lng) * hLng
+    : Number.NEGATIVE_INFINITY;
+  const scorePrev = prev
+    ? (prev.lat - polyline[anchorIdx].lat) * hLat +
+      (prev.lng - polyline[anchorIdx].lng) * hLng
+    : Number.NEGATIVE_INFINITY;
+
+  const goForward = scoreNext >= scorePrev;
+  const sliced = goForward
+    ? polyline.slice(anchorIdx)
+    : polyline.slice(0, anchorIdx + 1).reverse();
+
+  return sliced.length > 1 ? sliced : polyline;
 }
 
 /**
@@ -338,12 +392,17 @@ function LiveMapInner({
   );
 
   const railCoords = useMemo(
-    () =>
-      (driverRoute?.routePolyline ?? []).map((p) => ({
+    () => {
+      const directional = directionalRailPolyline(
+        driverRoute?.routePolyline ?? [],
+        smoothedLast ?? null,
+      );
+      return directional.map((p) => ({
         latitude: p.lat,
         longitude: p.lng,
-      })),
-    [driverRoute],
+      }));
+    },
+    [driverRoute, smoothedLast?.lat, smoothedLast?.lng, smoothedLast?.heading],
   );
 
   const region: Region = {

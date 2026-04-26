@@ -17,6 +17,61 @@ type Props = {
   mapResetKey?: number;
 };
 
+const FORWARD_EPS = -0.00003;
+
+function directionalRailPolyline(
+  polyline: Array<{ lat: number; lng: number }>,
+  vehicle: RoutePoint | undefined,
+) {
+  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return polyline;
+
+  const headingRad = (vehicle.heading * Math.PI) / 180;
+  const hLat = Math.cos(headingRad);
+  const hLng = Math.sin(headingRad);
+
+  let aheadIdx = -1;
+  let aheadBestDist = Number.POSITIVE_INFINITY;
+  let nearestIdx = 0;
+  let nearestBestDist = Number.POSITIVE_INFINITY;
+
+  for (let i = 0; i < polyline.length; i += 1) {
+    const p = polyline[i];
+    const dLat = p.lat - vehicle.lat;
+    const dLng = p.lng - vehicle.lng;
+    const dist2 = dLat * dLat + dLng * dLng;
+    const forwardness = dLat * hLat + dLng * hLng;
+
+    if (dist2 < nearestBestDist) {
+      nearestBestDist = dist2;
+      nearestIdx = i;
+    }
+    if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
+      aheadBestDist = dist2;
+      aheadIdx = i;
+    }
+  }
+
+  const anchorIdx = aheadIdx >= 0 ? aheadIdx : nearestIdx;
+  const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
+  const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
+
+  const scoreNext = next
+    ? (next.lat - polyline[anchorIdx].lat) * hLat +
+      (next.lng - polyline[anchorIdx].lng) * hLng
+    : Number.NEGATIVE_INFINITY;
+  const scorePrev = prev
+    ? (prev.lat - polyline[anchorIdx].lat) * hLat +
+      (prev.lng - polyline[anchorIdx].lng) * hLng
+    : Number.NEGATIVE_INFINITY;
+
+  const goForward = scoreNext >= scorePrev;
+  const sliced = goForward
+    ? polyline.slice(anchorIdx)
+    : polyline.slice(0, anchorIdx + 1).reverse();
+
+  return sliced.length > 1 ? sliced : polyline;
+}
+
 /**
  * Persistent Leaflet map — the map instance lives for the entire lifetime
  * of the component and layers are updated imperatively.
@@ -180,9 +235,15 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
       turnCircleRef.current = null;
     }
 
-    if (driverRoute?.routePolyline && driverRoute.routePolyline.length > 1) {
+    const lastVehicle = routePoints[routePoints.length - 1];
+    const directionalRoute = directionalRailPolyline(
+      driverRoute?.routePolyline ?? [],
+      lastVehicle,
+    );
+
+    if (directionalRoute.length > 1) {
       driverPolyRef.current = L.polyline(
-        driverRoute.routePolyline.map((p) => [p.lat, p.lng]),
+        directionalRoute.map((p) => [p.lat, p.lng]),
         { color: "#3b82f6", weight: 8, opacity: 0.85 },
       ).addTo(map);
     }
@@ -198,7 +259,7 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
         },
       ).addTo(map);
     }
-  }, [driverRoute]);
+  }, [driverRoute, routePoints]);
 
   const hasPoints = routePoints.length > 0;
 
