@@ -185,9 +185,13 @@ export function LiveMap({
           zIndexOffset: 1000,
         }).addTo(map);
       }
-      // Smooth pan — tiles already loaded, only viewport shifts.
-      // Short duration so it keeps up with 1 Hz GPS updates.
-      map.panTo([last.lat, last.lng], { animate: true, duration: 0.45, easeLinearity: 0.4 });
+      // Camera smoothing: step part-way toward the target each GPS tick.
+      // This avoids the "restart pan animation every packet" jitter.
+      const center = map.getCenter();
+      const blend = 0.24;
+      const nextLat = center.lat + (last.lat - center.lat) * blend;
+      const nextLng = center.lng + (last.lng - center.lng) * blend;
+      map.setView([nextLat, nextLng], map.getZoom(), { animate: false });
     }
   }, [routePoints]);
 
@@ -230,9 +234,8 @@ export function LiveMap({
     // safeguard against jittery heading.
     const approach = driverRoute?.approachLine ?? [];
     const nextDistanceM = driverRoute?.pin?.distanceMeters ?? null;
-    const showPin =
-      !!driverRoute?.pin &&
-      (nextDistanceM == null || (nextDistanceM >= 50 && nextDistanceM <= 250));
+    // Pin stays visible until vehicle passes it.
+    const showPin = !!driverRoute?.pin;
     const showLine =
       showGuidanceLine &&
       nextDistanceM != null &&

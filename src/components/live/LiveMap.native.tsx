@@ -47,25 +47,28 @@ const NAV_ZOOM_DELTA = 0.0012;
 // they were when the last GPS poll arrived. This eliminates the per-poll
 // "step" feel.
 
-// Spring stiffness (1/s²). Higher = catches up faster.
-const SPRING_STIFFNESS = 14;
+// Spring stiffness (1/s²). Slightly lower than before for smoother easing.
+const SPRING_STIFFNESS = 11;
 // Critical damping coefficient (1/s).
 const SPRING_DAMPING = 2 * Math.sqrt(SPRING_STIFFNESS);
 // Velocity EMA factor (per GPS sample). Smooths jitter in instantaneous speed.
-const VELOCITY_EMA = 0.3;
+const VELOCITY_EMA = 0.24;
 // Heading EMA (per GPS sample, applied via sin/cos for circular continuity).
-const HEADING_EMA = 0.35;
+const HEADING_EMA = 0.24;
 // Cap how far ahead we project (ms). Prevents rocketing forward if GPS pauses.
 const MAX_PROJECT_MS = 1500;
 // If packets are late, keep coasting for a few seconds with exponential decay.
 const COAST_MAX_MS = 6000;
 const COAST_DECAY_PER_SEC = 0.72;
 // Camera tick gate (ms). Prevents starving the JS thread.
-const CAMERA_MIN_INTERVAL_MS = 100;
+const CAMERA_MIN_INTERVAL_MS = 70;
 // Camera heading smoothing. Lower values = more stable, less twitch.
 const CAMERA_HEADING_BLEND = 0.16;
 // Maximum camera heading rotation speed (deg/sec) to avoid snap turns.
 const CAMERA_MAX_TURN_RATE_DPS = 90;
+// Limit React-state updates from the RAF loop; marker/camera motion stays
+// smooth in refs while UI reconciliation is throttled.
+const POSE_STATE_MIN_INTERVAL_MS = 55;
 const FORWARD_EPS = 0;
 const MOVEMENT_EPS2 = 1e-10;
 
@@ -151,6 +154,8 @@ function LiveMapInner({
   const lastFrameTsRef = useRef<number | null>(null);
   const lastCameraTsRef = useRef<number>(0);
   const cameraHeadingRef = useRef<number>(0);
+  const lastPoseStateTsRef = useRef<number>(0);
+  const hasSmoothedPoseRef = useRef(false);
   const routePointsRef = useRef(routePoints);
   routePointsRef.current = routePoints;
 
@@ -180,6 +185,8 @@ function LiveMapInner({
     headingTrigRef.current = { s: 0, c: 1 };
     lastFrameTsRef.current = null;
     lastCameraTsRef.current = 0;
+    lastPoseStateTsRef.current = 0;
+    hasSmoothedPoseRef.current = false;
     setSmoothedLast(null);
     if (!pt) return;
     const now = Date.now();
@@ -215,6 +222,7 @@ function LiveMapInner({
       rawRef.current = null;
       velRef.current = { vLat: 0, vLng: 0 };
       headingTrigRef.current = { s: 0, c: 1 };
+      hasSmoothedPoseRef.current = false;
       setSmoothedLast(null);
       return;
     }
@@ -325,11 +333,18 @@ function LiveMapInner({
           vLat: newVLat,
           vLng: newVLng,
         };
-        setSmoothedLast({
-          lat: newLat,
-          lng: newLng,
-          heading: ((newHeading % 360) + 360) % 360,
-        });
+        if (
+          now - lastPoseStateTsRef.current >= POSE_STATE_MIN_INTERVAL_MS ||
+          !hasSmoothedPoseRef.current
+        ) {
+          lastPoseStateTsRef.current = now;
+          hasSmoothedPoseRef.current = true;
+          setSmoothedLast({
+            lat: newLat,
+            lng: newLng,
+            heading: ((newHeading % 360) + 360) % 360,
+          });
+        }
 
         if (followDriver && now - lastCameraTsRef.current > CAMERA_MIN_INTERVAL_MS) {
           if (lastCameraTsRef.current === 0) {
@@ -371,7 +386,7 @@ function LiveMapInner({
       rafRef.current = null;
       lastFrameTsRef.current = null;
     };
-  }, [followDriver]);
+  }, [followDriver, followZoom]);
 
   // Cap to last 40 points — avoids ever-growing polyline re-renders
   const historyCoords = useMemo(
@@ -409,9 +424,8 @@ function LiveMapInner({
     return isPointBehindVehicle(smoothedLast, railHeading, driverRoute.pin);
   }, [smoothedLast, driverRoute?.pin, railHeading]);
   const nextDistanceM = driverRoute?.pin?.distanceMeters ?? null;
-  const showPin =
-    !!driverRoute?.pin &&
-    (nextDistanceM == null || (nextDistanceM >= 50 && nextDistanceM <= 250));
+  // Pin stays visible until vehicle passes it.
+  const showPin = !!driverRoute?.pin;
   const showLine =
     showGuidanceLine &&
     nextDistanceM != null &&
