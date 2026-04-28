@@ -8,10 +8,17 @@ import MapView, {
 import { View } from "react-native";
 import type { RoutePoint } from "@/types/live";
 
+/**
+ * Driver-route overlay passed to the map. Mirrors the new API shape:
+ *   - `pin`: the next blue dot (the closest of the AI-decided 3 pins
+ *     ahead). Stays visible from the moment it appears until the
+ *     vehicle physically passes it.
+ *   - `approachLine`: a pre-trimmed 50 m road segment ending at the
+ *     pin. We render it as-is (no client-side trimming).
+ */
 type DriverRouteOverlay = {
-  turnPoint: { lat: number; lng: number };
-  checkpoint: { lat: number; lng: number };
-  routePolyline: Array<{ lat: number; lng: number }>;
+  pin: { lat: number; lng: number; distanceMeters?: number } | null;
+  approachLine: Array<{ lat: number; lng: number }>;
 };
 
 type Props = {
@@ -22,6 +29,8 @@ type Props = {
   followZoom?: number;
   /** Increment to clear smoothing/camera state and re-seed from the latest point (recovery when stuck). */
   mapResetKey?: number;
+  /** Draw blue 50m line only for driver mode. */
+  showGuidanceLine?: boolean;
 };
 
 const NAV_ZOOM_DELTA = 0.0012;
@@ -63,64 +72,6 @@ const MOVEMENT_EPS2 = 1e-10;
 function shortestAngle(prev: number, next: number): number {
   let d = ((next - prev + 540) % 360) - 180;
   return prev + d;
-}
-
-function directionalRailPolyline(
-  polyline: Array<{ lat: number; lng: number }>,
-  vehicle: { lat: number; lng: number; heading?: number } | null,
-  headingDeg?: number,
-) {
-  if (polyline.length < 2 || !vehicle || headingDeg == null) return [];
-
-  const headingRad = (headingDeg * Math.PI) / 180;
-  const hLat = Math.cos(headingRad); // north/south axis
-  const hLng = Math.sin(headingRad); // east/west axis
-
-  let aheadIdx = -1;
-  let aheadBestDist = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < polyline.length; i += 1) {
-    const p = polyline[i];
-    const dLat = p.lat - vehicle.lat;
-    const dLng = p.lng - vehicle.lng;
-    const dist2 = dLat * dLat + dLng * dLng;
-    const forwardness = dLat * hLat + dLng * hLng;
-
-    if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
-      aheadBestDist = dist2;
-      aheadIdx = i;
-    }
-  }
-
-  if (aheadIdx < 0) return [];
-  const anchorIdx = aheadIdx;
-  const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
-  const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
-
-  const scoreNext = next
-    ? (next.lat - polyline[anchorIdx].lat) * hLat +
-      (next.lng - polyline[anchorIdx].lng) * hLng
-    : Number.NEGATIVE_INFINITY;
-  const scorePrev = prev
-    ? (prev.lat - polyline[anchorIdx].lat) * hLat +
-      (prev.lng - polyline[anchorIdx].lng) * hLng
-    : Number.NEGATIVE_INFINITY;
-
-  const goForward = scoreNext >= scorePrev;
-  const sliced = goForward
-    ? polyline.slice(anchorIdx)
-    : polyline.slice(0, anchorIdx + 1).reverse();
-
-  // Hard rule: keep only route points that are in front of the vehicle.
-  const forwardOnly = sliced.filter((p, idx) => {
-    if (idx === 0) return true; // keep anchor point for continuity
-    const dLat = p.lat - vehicle.lat;
-    const dLng = p.lng - vehicle.lng;
-    const forwardness = dLat * hLat + dLng * hLng;
-    return forwardness >= FORWARD_EPS;
-  });
-
-  return forwardOnly.length > 1 ? forwardOnly : [];
 }
 
 function inferMovementHeading(routePoints: RoutePoint[]): number | null {
@@ -167,6 +118,7 @@ function LiveMapInner({
   followDriver = true,
   followZoom = 17,
   mapResetKey = 0,
+  showGuidanceLine = false,
 }: Props) {
   const mapRef = useRef<MapView>(null);
   const rafRef = useRef<number | null>(null);
@@ -436,36 +388,34 @@ function LiveMapInner({
   );
   const railHeading = movementHeading ?? smoothedLast?.heading ?? null;
 
+  // The backend already trims the polyline to a 50 m segment ending at
+  // the pin, so we just render `approachLine` directly. No client-side
+  // forward/behind filtering needed.
   const railCoords = useMemo(
-    () => {
-      const directional = directionalRailPolyline(
-        driverRoute?.routePolyline ?? [],
-        smoothedLast ?? null,
-        railHeading ?? undefined,
-      );
-      return directional.map((p) => ({
+    () =>
+      (driverRoute?.approachLine ?? []).map((p) => ({
         latitude: p.lat,
         longitude: p.lng,
-      }));
-    },
-    [
-      driverRoute,
-      smoothedLast?.lat,
-      smoothedLast?.lng,
-      smoothedLast?.heading,
-      railHeading,
-    ],
+      })),
+    [driverRoute?.approachLine],
   );
 
-  const railEnd = useMemo(() => {
-    if (driverRoute?.checkpoint) return driverRoute.checkpoint;
-    const poly = driverRoute?.routePolyline ?? [];
-    return poly.length > 0 ? poly[poly.length - 1] : null;
-  }, [driverRoute]);
+  // The backend removes pins from the queue once the vehicle passes
+  // them, so if we have a pin it is by definition still ahead. We keep
+  // a small client-side guard against jittery heading vs. pin geometry
+  // (rare cases where backend hasn't ticked yet).
   const passedRailEnd = useMemo(() => {
-    if (!smoothedLast || !railEnd || railHeading == null) return false;
-    return isPointBehindVehicle(smoothedLast, railHeading, railEnd);
-  }, [smoothedLast, railEnd, railHeading]);
+    if (!smoothedLast || !driverRoute?.pin || railHeading == null) return false;
+    return isPointBehindVehicle(smoothedLast, railHeading, driverRoute.pin);
+  }, [smoothedLast, driverRoute?.pin, railHeading]);
+  const nextDistanceM = driverRoute?.pin?.distanceMeters ?? null;
+  const showPin =
+    !!driverRoute?.pin &&
+    (nextDistanceM == null || (nextDistanceM >= 50 && nextDistanceM <= 250));
+  const showLine =
+    showGuidanceLine &&
+    nextDistanceM != null &&
+    nextDistanceM < 50;
 
   const region: Region = {
     latitude: last?.lat ?? 44.0,
@@ -497,7 +447,7 @@ function LiveMapInner({
         ) : null}
 
         {/* Single blue rail — one pass is enough */}
-        {!passedRailEnd && railCoords.length > 1 ? (
+        {showLine && !passedRailEnd && railCoords.length > 1 ? (
           <Polyline
             coordinates={railCoords}
             strokeColor="rgba(59,130,246,0.8)"
@@ -505,13 +455,13 @@ function LiveMapInner({
           />
         ) : null}
 
-        {!passedRailEnd && driverRoute?.turnPoint ? (
+        {showPin && !passedRailEnd && driverRoute?.pin ? (
           <Marker
             coordinate={{
-              latitude: driverRoute.turnPoint.lat,
-              longitude: driverRoute.turnPoint.lng,
+              latitude: driverRoute.pin.lat,
+              longitude: driverRoute.pin.lng,
             }}
-            pinColor="#6366f1"
+            pinColor="#2563eb"
           />
         ) : null}
 
@@ -554,6 +504,7 @@ function LiveMapInner({
 }
 
 export const LiveMap = memo(LiveMapInner, (prev, next) => {
+  if (prev.showGuidanceLine !== next.showGuidanceLine) return false;
   if (prev.mapResetKey !== next.mapResetKey) return false;
   const prevLast = prev.routePoints[prev.routePoints.length - 1];
   const nextLast = next.routePoints[next.routePoints.length - 1];
@@ -568,9 +519,11 @@ export const LiveMap = memo(LiveMapInner, (prev, next) => {
   if (prev.routePoints.length !== next.routePoints.length) return false;
 
   if (
-    prev.driverRoute?.turnPoint?.lat !== next.driverRoute?.turnPoint?.lat ||
-    prev.driverRoute?.routePolyline?.length !==
-      next.driverRoute?.routePolyline?.length
+    prev.driverRoute?.pin?.lat !== next.driverRoute?.pin?.lat ||
+    prev.driverRoute?.pin?.lng !== next.driverRoute?.pin?.lng ||
+    prev.driverRoute?.pin?.distanceMeters !== next.driverRoute?.pin?.distanceMeters ||
+    prev.driverRoute?.approachLine?.length !==
+      next.driverRoute?.approachLine?.length
   )
     return false;
 

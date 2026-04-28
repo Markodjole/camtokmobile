@@ -4,10 +4,14 @@ import React, { useEffect, useRef } from "react";
 import { Text, View } from "react-native";
 import type { RoutePoint } from "@/types/live";
 
+/**
+ * Mirrors the new API shape: a single visible pin (`pin`) and a
+ * pre-trimmed 50 m approach polyline (`approachLine`). The backend
+ * removes the pin from the response once the vehicle passes it.
+ */
 type DriverRouteOverlay = {
-  turnPoint: { lat: number; lng: number };
-  checkpoint: { lat: number; lng: number };
-  routePolyline: Array<{ lat: number; lng: number }>;
+  pin: { lat: number; lng: number; distanceMeters?: number } | null;
+  approachLine: Array<{ lat: number; lng: number }>;
 };
 
 type Props = {
@@ -15,68 +19,11 @@ type Props = {
   driverRoute?: DriverRouteOverlay | null;
   followDriver?: boolean;
   mapResetKey?: number;
+  showGuidanceLine?: boolean;
 };
 
 const FORWARD_EPS = 0;
 const MOVEMENT_EPS2 = 1e-10;
-
-function directionalRailPolyline(
-  polyline: Array<{ lat: number; lng: number }>,
-  vehicle: RoutePoint | undefined,
-  headingDeg: number | undefined,
-) {
-  if (polyline.length < 2 || !vehicle || headingDeg == null) return [];
-
-  const headingRad = (headingDeg * Math.PI) / 180;
-  const hLat = Math.cos(headingRad);
-  const hLng = Math.sin(headingRad);
-
-  let aheadIdx = -1;
-  let aheadBestDist = Number.POSITIVE_INFINITY;
-
-  for (let i = 0; i < polyline.length; i += 1) {
-    const p = polyline[i];
-    const dLat = p.lat - vehicle.lat;
-    const dLng = p.lng - vehicle.lng;
-    const dist2 = dLat * dLat + dLng * dLng;
-    const forwardness = dLat * hLat + dLng * hLng;
-
-    if (forwardness >= FORWARD_EPS && dist2 < aheadBestDist) {
-      aheadBestDist = dist2;
-      aheadIdx = i;
-    }
-  }
-
-  if (aheadIdx < 0) return [];
-  const anchorIdx = aheadIdx;
-  const next = anchorIdx + 1 < polyline.length ? polyline[anchorIdx + 1] : null;
-  const prev = anchorIdx - 1 >= 0 ? polyline[anchorIdx - 1] : null;
-
-  const scoreNext = next
-    ? (next.lat - polyline[anchorIdx].lat) * hLat +
-      (next.lng - polyline[anchorIdx].lng) * hLng
-    : Number.NEGATIVE_INFINITY;
-  const scorePrev = prev
-    ? (prev.lat - polyline[anchorIdx].lat) * hLat +
-      (prev.lng - polyline[anchorIdx].lng) * hLng
-    : Number.NEGATIVE_INFINITY;
-
-  const goForward = scoreNext >= scorePrev;
-  const sliced = goForward
-    ? polyline.slice(anchorIdx)
-    : polyline.slice(0, anchorIdx + 1).reverse();
-
-  // Hard rule: keep only points that are in front of the vehicle.
-  const forwardOnly = sliced.filter((p, idx) => {
-    if (idx === 0) return true;
-    const dLat = p.lat - vehicle.lat;
-    const dLng = p.lng - vehicle.lng;
-    const forwardness = dLat * hLat + dLng * hLng;
-    return forwardness >= FORWARD_EPS;
-  });
-
-  return forwardOnly.length > 1 ? forwardOnly : [];
-}
 
 function inferMovementHeading(routePoints: RoutePoint[]): number | undefined {
   if (routePoints.length < 2) return undefined;
@@ -113,7 +60,12 @@ function isPointBehindVehicle(
  * (routeKey/driverKey in the effect dep array), causing 1-3 s tile-reload
  * flashes. Now tiles stay in memory and only the polyline / marker move.
  */
-export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
+export function LiveMap({
+  routePoints,
+  driverRoute,
+  mapResetKey = 0,
+  showGuidanceLine = false,
+}: Props) {
   // Keep Leaflet instance alive in refs
   const containerRef = useRef<any>(null);
   const mapRef = useRef<any>(null);
@@ -271,30 +223,35 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
     const lastVehicle = routePoints[routePoints.length - 1];
     const movementHeading = inferMovementHeading(routePoints);
     const railHeading = movementHeading ?? lastVehicle?.heading;
-    const directionalRoute = directionalRailPolyline(
-      driverRoute?.routePolyline ?? [],
-      lastVehicle,
-      railHeading,
-    );
-    const railEnd = driverRoute?.checkpoint ??
-      (driverRoute?.routePolyline?.length
-        ? driverRoute.routePolyline[driverRoute.routePolyline.length - 1]
-        : null);
+
+    // Backend already trimmed `approachLine` to the 50 m segment ending
+    // at the pin and dropped it once the vehicle passed the pin, so we
+    // render it as-is. The behind-vehicle check is a small client-side
+    // safeguard against jittery heading.
+    const approach = driverRoute?.approachLine ?? [];
+    const nextDistanceM = driverRoute?.pin?.distanceMeters ?? null;
+    const showPin =
+      !!driverRoute?.pin &&
+      (nextDistanceM == null || (nextDistanceM >= 50 && nextDistanceM <= 250));
+    const showLine =
+      showGuidanceLine &&
+      nextDistanceM != null &&
+      nextDistanceM < 50;
     const passedRailEnd =
       !!lastVehicle &&
-      !!railEnd &&
+      !!driverRoute?.pin &&
       railHeading != null &&
-      isPointBehindVehicle(lastVehicle, railHeading, railEnd);
+      isPointBehindVehicle(lastVehicle, railHeading, driverRoute.pin);
 
-    if (!passedRailEnd && directionalRoute.length > 1) {
+    if (showLine && !passedRailEnd && approach.length > 1) {
       driverPolyRef.current = L.polyline(
-        directionalRoute.map((p) => [p.lat, p.lng]),
+        approach.map((p) => [p.lat, p.lng]),
         { color: "#3b82f6", weight: 8, opacity: 0.85 },
       ).addTo(map);
     }
-    if (!passedRailEnd && driverRoute?.turnPoint) {
+    if (showPin && !passedRailEnd && driverRoute?.pin) {
       turnCircleRef.current = L.circle(
-        [driverRoute.turnPoint.lat, driverRoute.turnPoint.lng],
+        [driverRoute.pin.lat, driverRoute.pin.lng],
         {
           radius: 16,
           color: "#2563eb",
@@ -304,7 +261,7 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
         },
       ).addTo(map);
     }
-  }, [driverRoute, routePoints]);
+  }, [driverRoute, routePoints, showGuidanceLine]);
 
   const hasPoints = routePoints.length > 0;
 

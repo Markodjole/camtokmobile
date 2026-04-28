@@ -63,15 +63,26 @@ export type LiveFeedRow = {
   routePoints: RoutePoint[];
 };
 
+/**
+ * Driver-route guidance from the backend. The backend internally tracks
+ * a queue of up to 3 crossroad pins ahead of the vehicle (200–400 m of
+ * road distance apart), but only `pins[0]` — the next decision point —
+ * is shown to the user. The blue line is a pre-trimmed 50 m segment
+ * ending at `pins[0]`.
+ */
+export type DriverRoutePin = {
+  /** Stable id (OSM node id) — useful for dedup. */
+  id: number;
+  lat: number;
+  lng: number;
+  /** Road-distance from the current vehicle position, meters. */
+  distanceMeters: number;
+};
+
 export type DriverRouteInstruction = {
   decisionId?: string;
-  turnKind?: "left" | "right" | "straight" | "u-turn";
-  turnPoint: { lat: number; lng: number };
-  checkpoint: { lat: number; lng: number };
-  routePolyline: Array<{ lat: number; lng: number }>;
-  distanceMeters?: number;
-  lockAt?: string | null;
-  expiresAt?: string | null;
+  pins: DriverRoutePin[];
+  approachLine: Array<{ lat: number; lng: number }>;
   confidence?: "high" | "low";
 };
 

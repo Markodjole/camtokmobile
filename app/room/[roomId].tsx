@@ -26,6 +26,7 @@ import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { RoutePoint } from "@/types/live";
+import { BET_LOCK_DISTANCE_M, metersBetween } from "@/lib/geo";
 
 /**
  * Mobile twin of `apps/web/src/components/live/LiveRoomScreen.tsx`.
@@ -148,9 +149,29 @@ export default function RoomScreen() {
   }, [isOwnLiveSession]);
 
   const currentMarket = room.data?.currentMarket ?? null;
-  const locked = currentMarket
+  const timeLocked = currentMarket
     ? Date.parse(currentMarket.locksAt) <= Date.now()
     : true;
+  // Distance gate (mirrors web): bets close once the vehicle is within
+  // BET_LOCK_DISTANCE_M of the turn point, regardless of clock. Use the
+  // market's stored turn point when present; fall back to the next
+  // driver-route pin so the gate still works while a market is being
+  // (re)opened.
+  const distanceLocked = (() => {
+    const last =
+      (room.data?.routePoints?.[room.data.routePoints.length - 1]) ??
+      (routePoints.data?.[routePoints.data.length - 1]);
+    if (!last) return false;
+    const turn =
+      currentMarket?.turnPointLat != null && currentMarket?.turnPointLng != null
+        ? { lat: currentMarket.turnPointLat, lng: currentMarket.turnPointLng }
+        : driverRoute.data?.pins?.[0]
+          ? { lat: driverRoute.data.pins[0].lat, lng: driverRoute.data.pins[0].lng }
+          : null;
+    if (!turn) return false;
+    return metersBetween({ lat: last.lat, lng: last.lng }, turn) <= BET_LOCK_DISTANCE_M;
+  })();
+  const locked = timeLocked || distanceLocked;
 
   const resolvedRoutePoints = useMemo(() => {
     if (!room.data) return [];
@@ -279,12 +300,21 @@ export default function RoomScreen() {
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
           followZoom={isDriverMode ? 18 : 17}
+          showGuidanceLine={isDriverMode}
           driverRoute={
             driverRoute.data
               ? {
-                  turnPoint: driverRoute.data.turnPoint,
-                  checkpoint: driverRoute.data.checkpoint,
-                  routePolyline: driverRoute.data.routePolyline,
+                  // Show only the next pin (`pins[0]`). The backend
+                  // keeps a queue of 3 internally for stable lookahead;
+                  // the rest are not rendered.
+                  pin: driverRoute.data.pins?.[0]
+                    ? {
+                        lat: driverRoute.data.pins[0].lat,
+                        lng: driverRoute.data.pins[0].lng,
+                        distanceMeters: driverRoute.data.pins[0].distanceMeters,
+                      }
+                    : null,
+                  approachLine: driverRoute.data.approachLine ?? [],
                 }
               : null
           }
