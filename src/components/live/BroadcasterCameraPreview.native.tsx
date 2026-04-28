@@ -129,14 +129,16 @@ function WebRtcPreview({
     };
   }, [facing, permission?.granted, runtime]);
 
+  // Push session id + local stream into the global broadcast store so the
+  // room screen can render the broadcaster's own camera even if this preview
+  // is briefly hidden behind another modal. We deliberately do NOT clear the
+  // store on unmount — `endLive` on the Go Live screen owns that lifecycle.
   useEffect(() => {
     setSession(liveSessionId ?? null);
-    return () => setSession(null);
   }, [liveSessionId, setSession]);
 
   useEffect(() => {
     setLocalStream(stream as unknown as { toURL: () => string } | null);
-    return () => setLocalStream(null);
   }, [setLocalStream, stream]);
 
   useEffect(() => {

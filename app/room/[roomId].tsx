@@ -2,17 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   Pressable,
   Text,
   View,
 } from "react-native";
 import * as Location from "expo-location";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
 import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
-import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
 import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
@@ -41,11 +39,14 @@ import type { RoutePoint } from "@/types/live";
  *   - Bottom: directional bet pad pinned above the home indicator.
  */
 export default function RoomScreen() {
-  const { roomId, sessionId: routeSessionId } = useLocalSearchParams<{
+  const { roomId, sessionId: routeSessionId, mode } = useLocalSearchParams<{
     roomId: string;
     sessionId?: string;
+    mode?: string;
   }>();
+  const isDriverMode = mode === "driver";
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const room = useLiveRoom(roomId ?? null);
   const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
@@ -61,7 +62,8 @@ export default function RoomScreen() {
   useMapTilePreload(firstPoint?.lat, firstPoint?.lng);
 
   const [betAmount, setBetAmount] = useState(10);
-  const [mapExpanded, setMapExpanded] = useState(Platform.OS !== "web");
+  // Keep map as the default fullscreen layer (web parity for room navigation in-app).
+  const [mapExpanded, setMapExpanded] = useState(true);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
@@ -178,7 +180,7 @@ export default function RoomScreen() {
     lng: lastResolved?.lng,
     requireMovement: isOwnLiveSession,
     speedMps: lastResolved?.speedMps,
-    staleAfterMs: isOwnLiveSession ? 10_000 : 18_000,
+    staleAfterMs: isOwnLiveSession ? 25_000 : 40_000,
     enabled: resolvedRoutePoints.length > 0,
   });
 
@@ -262,171 +264,205 @@ export default function RoomScreen() {
   const data = room.data;
 
   return (
-    <View className="relative flex-1 bg-black">
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Fullscreen layer: video or map */}
-      <View className="absolute inset-0">
-        {mapExpanded ? (
-          <LiveMap
-            routePoints={resolvedRoutePoints}
-            mapResetKey={mapResetKey}
-            driverRoute={
-              driverRoute.data
-                ? {
-                    turnPoint: driverRoute.data.turnPoint,
-                    checkpoint: driverRoute.data.checkpoint,
-                    routePolyline: driverRoute.data.routePolyline,
-                  }
-                : null
-            }
-          />
-        ) : (
-          <LiveVideoPlayer
-            liveSessionId={effectiveSessionId}
-            localStream={isOwnLiveSession ? localBroadcastStream : null}
-          />
-        )}
+      {/* Map layer — always mounted so camera state is not reset on PiP swap */}
+      <View
+        style={
+          mapExpanded
+            ? { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
+            : { position: "absolute", left: 12, top: 130, width: 144, height: 144, zIndex: 30, borderRadius: 16, overflow: "hidden" }
+        }
+      >
+        <LiveMap
+          routePoints={resolvedRoutePoints}
+          mapResetKey={mapResetKey}
+          followZoom={isDriverMode ? 18 : 17}
+          driverRoute={
+            driverRoute.data
+              ? {
+                  turnPoint: driverRoute.data.turnPoint,
+                  checkpoint: driverRoute.data.checkpoint,
+                  routePolyline: driverRoute.data.routePolyline,
+                }
+              : null
+          }
+        />
       </View>
 
-      {mapExpanded ? (
-        <View className="absolute right-3 top-28 z-[45] max-w-[40%] items-end">
-          <Pressable
-            onPress={blurOnWeb(refreshMap)}
-            accessibilityLabel="Refresh map and location"
-            className="h-10 min-w-10 items-center justify-center rounded-full bg-black/70 px-2 active:opacity-80"
-          >
-            <Text className="text-lg text-white">↻</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {mapExpanded && mapStale ? (
-        <View className="absolute left-3 right-3 top-40 z-[45] rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2">
-          <Text className="text-center text-xs text-amber-100/95">
-            Map may be stuck — tap ↻ to refresh
-          </Text>
-        </View>
-      ) : null}
-      {mapExpanded && resolvedRoutePoints.length === 0 ? (
-        <View className="absolute left-3 right-3 top-40 z-[45] rounded-xl border border-white/20 bg-black/50 px-3 py-2">
-          <Text className="text-center text-xs text-white/85">
-            Waiting for location… tap ↻ if it stays empty
-          </Text>
-        </View>
-      ) : null}
+      {/* Video layer — always mounted; WebRTC connection persists through PiP swaps */}
+      <View
+        style={
+          mapExpanded
+            ? { position: "absolute", left: 12, top: 130, width: 144, height: 144, zIndex: 30, borderRadius: 16, overflow: "hidden" }
+            : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
+        }
+      >
+        <LiveVideoPlayer
+          liveSessionId={effectiveSessionId}
+          localStream={isOwnLiveSession ? localBroadcastStream : null}
+        />
+      </View>
+
+      {/* Top gradient scrim */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0, right: 0, top: 0,
+          height: 160,
+          zIndex: 10,
+        }}
+      />
 
       {/* Top bar */}
-      <SafeAreaView edges={["top"]} className="absolute inset-x-0 top-0 z-40">
-        <View className="px-4 pb-1 pt-1">
-          <LiveModeSwitch />
-        </View>
-        <View className="flex-row items-center gap-2 px-4 py-2">
+      <SafeAreaView edges={["top"]} style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 40 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
           <Pressable
             onPress={blurOnWeb(() => router.back())}
             accessibilityLabel="Close live room"
-            className="h-9 w-9 items-center justify-center rounded-full bg-black/60"
+            style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
           >
-            <Text className="text-xl text-white">✕</Text>
+            <Text style={{ color: "#fff", fontSize: 18 }}>✕</Text>
           </Pressable>
-          <View className="rounded bg-red-500/30 px-2 py-0.5">
-            <Text className="text-[11px] font-bold tracking-wider text-red-400">
-              LIVE
-            </Text>
+          <View style={{ borderRadius: 4, backgroundColor: "rgba(239,68,68,0.3)", paddingHorizontal: 8, paddingVertical: 2 }}>
+            <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }}>LIVE</Text>
           </View>
-          <Text className="font-semibold text-white">{data.characterName}</Text>
-          <View className="flex-row items-center gap-1">
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{data.characterName}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <TransportModeIcon mode={data.transportMode} className="text-sm" />
-            <Text className="text-xs text-white/60">
+            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
               {String(data.transportMode).replace("_", " ")}
             </Text>
           </View>
-
-          <View className="ml-auto flex-row items-center gap-1.5">
+          <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Pressable
               onPress={() => setShowComposer(true)}
-              className="h-8 w-8 items-center justify-center rounded-full bg-white/15 active:bg-white/30"
+              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
               accessibilityLabel="Propose market"
             >
-              <Text className="text-xs text-white">＋</Text>
+              <Text style={{ color: "#fff", fontSize: 14 }}>＋</Text>
             </Pressable>
             <Pressable
               onPress={() => setBetAmount((n) => Math.max(1, n - 5))}
-              className="h-7 w-7 items-center justify-center rounded-full bg-white/15 active:bg-white/30"
-              accessibilityLabel="Decrease bet"
+              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
             >
-              <Text className="text-sm font-bold text-white">−</Text>
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>−</Text>
             </Pressable>
-            <Text className="min-w-[44px] text-center text-sm font-semibold text-white">
-              ${betAmount}
-            </Text>
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", minWidth: 40, textAlign: "center" }}>${betAmount}</Text>
             <Pressable
               onPress={() => setBetAmount((n) => n + 5)}
-              className="h-7 w-7 items-center justify-center rounded-full bg-white/15 active:bg-white/30"
-              accessibilityLabel="Increase bet"
+              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
             >
-              <Text className="text-sm font-bold text-white">+</Text>
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>+</Text>
             </Pressable>
           </View>
         </View>
-
         {currentMarket ? (
-          <View className="mx-4 mt-1 flex-row items-center justify-between rounded-full bg-black/50 px-3 py-1.5">
-            <Text className="text-xs text-white/85">{currentMarket.title}</Text>
+          <View style={{ marginHorizontal: 16, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, flex: 1 }} numberOfLines={1}>{currentMarket.title}</Text>
             <MarketTimer locksAt={currentMarket.locksAt} />
           </View>
         ) : null}
       </SafeAreaView>
 
-      {/* PiP corner */}
-      <View className="absolute left-3 top-24 h-40 w-40 overflow-hidden rounded-2xl border border-white/25 bg-black/60 shadow-xl">
-        {mapExpanded ? (
-          <LiveVideoPlayer
-            liveSessionId={effectiveSessionId}
-            localStream={isOwnLiveSession ? localBroadcastStream : null}
+      {/* Map controls */}
+      {mapExpanded ? (
+        <View style={{ position: "absolute", right: 12, top: 160, zIndex: 45 }}>
+          <Pressable
+            onPress={blurOnWeb(refreshMap)}
+            accessibilityLabel="Refresh map"
+            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.7)", alignItems: "center", justifyContent: "center" }}
+          >
+            <Text style={{ color: "#fff", fontSize: 18 }}>↻</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {mapExpanded && mapStale ? (
+        <View style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.15)", paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Text style={{ color: "rgba(255,237,213,0.95)", fontSize: 11, textAlign: "center" }}>Map may be stuck — tap ↻ to refresh</Text>
+        </View>
+      ) : null}
+      {mapExpanded && resolvedRoutePoints.length === 0 ? (
+        <View style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, textAlign: "center" }}>Waiting for location…</Text>
+        </View>
+      ) : null}
+
+      {/* PiP decorative border (always at pip corner, non-interactive) */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 12, top: 130,
+          width: 144, height: 144,
+          zIndex: 31,
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.25)",
+        }}
+      />
+      {/* PiP swap button */}
+      <Pressable
+        onPress={() => setMapExpanded((v) => !v)}
+        style={{
+          position: "absolute",
+          left: 12 + 144 - 32,
+          top: 130 + 144 - 32,
+          zIndex: 32,
+          width: 26, height: 26, borderRadius: 13,
+          backgroundColor: "rgba(0,0,0,0.7)",
+          alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <Text style={{ color: "#fff", fontSize: 10 }}>⛶</Text>
+      </Pressable>
+
+      {/* Bottom gradient scrim */}
+      <View
+        pointerEvents="none"
+        style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 220, zIndex: 10 }}
+      />
+
+      {/* Joystick / driver bar — plain View, guaranteed visible */}
+      <View
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 60,
+          paddingBottom: Math.max(insets.bottom, 6),
+          paddingTop: 4,
+          alignItems: "center",
+        }}
+        pointerEvents="box-none"
+      >
+        {isDriverMode ? (
+          <DriverStatusBar
+            routePoints={resolvedRoutePoints}
+            sessionId={effectiveSessionId}
           />
         ) : (
-          <LiveMap
-            routePoints={resolvedRoutePoints}
-            mapResetKey={mapResetKey}
-            driverRoute={
-              driverRoute.data
-                ? {
-                    turnPoint: driverRoute.data.turnPoint,
-                    checkpoint: driverRoute.data.checkpoint,
-                    routePolyline: driverRoute.data.routePolyline,
-                  }
-                : null
-            }
-          />
+          <>
+            <DirectionalBetPad
+              options={currentMarket?.options ?? []}
+              betAmount={betAmount}
+              onBet={async (optionId) => {
+                await handleBet(optionId);
+              }}
+              locked={locked || !currentMarket || placeBet.isPending}
+              routePoints={resolvedRoutePoints}
+            />
+            {betError ? (
+              <Text style={{ marginTop: 4, fontSize: 11, color: "#f87171", textAlign: "center" }}>
+                {betError}
+              </Text>
+            ) : null}
+          </>
         )}
-        <Pressable
-          onPress={() => setMapExpanded((v) => !v)}
-          accessibilityLabel={
-            mapExpanded ? "Show camera fullscreen" : "Show map fullscreen"
-          }
-          className="absolute bottom-1.5 right-1.5 h-7 w-7 items-center justify-center rounded-full bg-black/70"
-        >
-          <Text className="text-[10px] text-white">⛶</Text>
-        </Pressable>
       </View>
-
-      {/* Bottom joystick */}
-      <SafeAreaView edges={["bottom"]} className="absolute inset-x-0 bottom-0 z-50">
-        <View className="items-center pb-4">
-          <DirectionalBetPad
-            options={currentMarket?.options ?? []}
-            betAmount={betAmount}
-            onBet={async (optionId) => {
-              await handleBet(optionId);
-            }}
-            locked={locked || !currentMarket || placeBet.isPending}
-            routePoints={resolvedRoutePoints}
-          />
-          {betError ? (
-            <Text className="mt-1 text-[11px] text-red-400">{betError}</Text>
-          ) : null}
-        </View>
-      </SafeAreaView>
 
       {roomId ? (
         <MarketComposerSheet
@@ -451,5 +487,93 @@ function MarketTimer({ locksAt }: { locksAt: string }) {
     <Text className={`text-xs font-semibold ${color}`}>
       {secondsLeft <= 0 ? "locked" : label}
     </Text>
+  );
+}
+
+function DriverStatusBar({
+  routePoints,
+  sessionId,
+}: {
+  routePoints: import("@/types/live").RoutePoint[];
+  sessionId: string | null;
+}) {
+  const last = routePoints[routePoints.length - 1];
+  const speedKmh = last?.speedMps != null ? Math.round(last.speedMps * 3.6) : null;
+
+  return (
+    <View
+      style={{
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: "rgba(239,68,68,0.35)",
+        backgroundColor: "rgba(0,0,0,0.75)",
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 12,
+      }}
+    >
+      {/* LIVE badge */}
+      <View
+        style={{
+          borderRadius: 6,
+          backgroundColor: "rgba(239,68,68,0.25)",
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+        }}
+      >
+        <Text
+          style={{
+            color: "#f87171",
+            fontSize: 11,
+            fontWeight: "800",
+            letterSpacing: 1.5,
+          }}
+        >
+          LIVE
+        </Text>
+      </View>
+
+      {/* Speed */}
+      <View style={{ alignItems: "center" }}>
+        <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "700", lineHeight: 20 }}>
+          {speedKmh ?? "—"}
+        </Text>
+        <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 9, fontWeight: "600", letterSpacing: 0.5 }}>
+          KM/H
+        </Text>
+      </View>
+
+      {/* Points */}
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11 }}>
+          {routePoints.length > 0 ? `${routePoints.length} pts recorded` : "Waiting for GPS…"}
+        </Text>
+        {sessionId ? (
+          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }} numberOfLines={1}>
+            {sessionId.slice(0, 8)}…
+          </Text>
+        ) : null}
+      </View>
+
+      {/* Driving indicator */}
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: "rgba(16,185,129,0.2)",
+          borderWidth: 1,
+          borderColor: "rgba(16,185,129,0.5)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ fontSize: 18 }}>🚗</Text>
+      </View>
+    </View>
   );
 }

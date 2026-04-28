@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { startViewerP2p } from "@/lib/liveP2p.native";
 
 type MediaStream = { toURL: () => string };
@@ -36,7 +36,10 @@ type Props = {
 export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [connectingSec, setConnectingSec] = useState(0);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Local stream (broadcaster self-preview) takes priority
   const activeStream = localStream ?? remoteStream;
@@ -45,14 +48,20 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
     if (!liveSessionId || localStream) {
       setRemoteStream(null);
       setError(null);
+      setConnectingSec(0);
       return;
     }
     if (!rtc) {
-      // Expo Go — silently no-op; the room shows the map fullscreen instead
       return;
     }
 
     let cancelled = false;
+    setConnectingSec(0);
+
+    // Connecting elapsed-seconds counter
+    timerRef.current = setInterval(() => {
+      setConnectingSec((n) => n + 1);
+    }, 1000);
 
     const timer = setTimeout(() => {
       if (cancelled) return;
@@ -62,10 +71,15 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
           if (!cancelled) {
             setRemoteStream(s as unknown as MediaStream);
             setError(null);
+            setConnectingSec(0);
+            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
           }
         },
         (msg) => {
-          if (!cancelled) setError(msg);
+          if (!cancelled) {
+            setError(msg);
+            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+          }
         },
       )
         .then((cleanup) => {
@@ -73,18 +87,25 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
           else cleanupRef.current = cleanup;
         })
         .catch((e) => {
-          if (!cancelled) setError(e instanceof Error ? e.message : "Connection error");
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : "Connection error");
+            if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+          }
         });
     }, 50);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       cleanupRef.current?.();
       cleanupRef.current = null;
       setRemoteStream(null);
+      setConnectingSec(0);
     };
-  }, [liveSessionId, localStream]);
+  // retryKey forces a full reconnect when the user taps Retry
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveSessionId, localStream, retryKey]);
 
   const streamURL = activeStream
     ? (activeStream as unknown as { toURL: () => string }).toURL()
@@ -92,6 +113,7 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
 
   // In Expo Go (no rtc) we never connect, so never show the spinner
   const connecting = !!rtc && !localStream && liveSessionId && !remoteStream && !error;
+  const timedOut = connecting && connectingSec >= 30;
 
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
@@ -118,11 +140,32 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: "rgba(0,0,0,0.65)",
+            padding: 12,
           }}
         >
-          <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13 }}>
-            Connecting to live stream…
-          </Text>
+          {timedOut ? (
+            <>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, textAlign: "center" }}>
+                Stream offline or not yet started
+              </Text>
+              <Pressable
+                onPress={() => { setError(null); setRetryKey((k) => k + 1); }}
+                style={{
+                  marginTop: 10,
+                  paddingHorizontal: 14,
+                  paddingVertical: 6,
+                  borderRadius: 999,
+                  backgroundColor: "rgba(255,255,255,0.15)",
+                }}
+              >
+                <Text style={{ color: "#fff", fontSize: 12 }}>Retry</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, textAlign: "center" }}>
+              Connecting… ({connectingSec}s)
+            </Text>
+          )}
         </View>
       ) : null}
 
@@ -143,6 +186,18 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
           <Text style={{ color: "#fca5a5", fontSize: 12, textAlign: "center" }}>
             {error}
           </Text>
+          <Pressable
+            onPress={() => { setError(null); setRetryKey((k) => k + 1); }}
+            style={{
+              marginTop: 10,
+              paddingHorizontal: 14,
+              paddingVertical: 6,
+              borderRadius: 999,
+              backgroundColor: "rgba(255,255,255,0.15)",
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 12 }}>Retry</Text>
+          </Pressable>
         </View>
       ) : null}
 

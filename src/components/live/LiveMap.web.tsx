@@ -18,14 +18,16 @@ type Props = {
 };
 
 const FORWARD_EPS = 0;
+const MOVEMENT_EPS2 = 1e-10;
 
 function directionalRailPolyline(
   polyline: Array<{ lat: number; lng: number }>,
   vehicle: RoutePoint | undefined,
+  headingDeg: number | undefined,
 ) {
-  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return [];
+  if (polyline.length < 2 || !vehicle || headingDeg == null) return [];
 
-  const headingRad = (vehicle.heading * Math.PI) / 180;
+  const headingRad = (headingDeg * Math.PI) / 180;
   const hLat = Math.cos(headingRad);
   const hLng = Math.sin(headingRad);
 
@@ -74,6 +76,33 @@ function directionalRailPolyline(
   });
 
   return forwardOnly.length > 1 ? forwardOnly : [];
+}
+
+function inferMovementHeading(routePoints: RoutePoint[]): number | undefined {
+  if (routePoints.length < 2) return undefined;
+  const a = routePoints[routePoints.length - 2]!;
+  const b = routePoints[routePoints.length - 1]!;
+  const dLat = b.lat - a.lat;
+  const dLng = b.lng - a.lng;
+  const mag2 = dLat * dLat + dLng * dLng;
+  if (mag2 <= MOVEMENT_EPS2) return undefined;
+  const rad = Math.atan2(dLng, dLat);
+  const deg = (rad * 180) / Math.PI;
+  return (deg + 360) % 360;
+}
+
+function isPointBehindVehicle(
+  vehicle: RoutePoint,
+  headingDeg: number,
+  point: { lat: number; lng: number },
+) {
+  const headingRad = (headingDeg * Math.PI) / 180;
+  const hLat = Math.cos(headingRad);
+  const hLng = Math.sin(headingRad);
+  const dLat = point.lat - vehicle.lat;
+  const dLng = point.lng - vehicle.lng;
+  const forwardness = dLat * hLat + dLng * hLng;
+  return forwardness < FORWARD_EPS;
 }
 
 /**
@@ -240,18 +269,30 @@ export function LiveMap({ routePoints, driverRoute, mapResetKey = 0 }: Props) {
     }
 
     const lastVehicle = routePoints[routePoints.length - 1];
+    const movementHeading = inferMovementHeading(routePoints);
+    const railHeading = movementHeading ?? lastVehicle?.heading;
     const directionalRoute = directionalRailPolyline(
       driverRoute?.routePolyline ?? [],
       lastVehicle,
+      railHeading,
     );
+    const railEnd = driverRoute?.checkpoint ??
+      (driverRoute?.routePolyline?.length
+        ? driverRoute.routePolyline[driverRoute.routePolyline.length - 1]
+        : null);
+    const passedRailEnd =
+      !!lastVehicle &&
+      !!railEnd &&
+      railHeading != null &&
+      isPointBehindVehicle(lastVehicle, railHeading, railEnd);
 
-    if (directionalRoute.length > 1) {
+    if (!passedRailEnd && directionalRoute.length > 1) {
       driverPolyRef.current = L.polyline(
         directionalRoute.map((p) => [p.lat, p.lng]),
         { color: "#3b82f6", weight: 8, opacity: 0.85 },
       ).addTo(map);
     }
-    if (driverRoute?.turnPoint) {
+    if (!passedRailEnd && driverRoute?.turnPoint) {
       turnCircleRef.current = L.circle(
         [driverRoute.turnPoint.lat, driverRoute.turnPoint.lng],
         {

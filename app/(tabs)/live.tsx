@@ -91,8 +91,7 @@ export default function LiveTab() {
         edges={["top"]}
         className="absolute inset-x-0 top-0 z-50 px-4"
       >
-        <View className="mt-2 flex-row items-center justify-between">
-          <LiveModeSwitch />
+        <View className="mt-2 flex-row items-center justify-end">
           <Pressable
             onPress={blurOnWeb(() => router.push("/live/go"))}
             className="rounded-full border border-emerald-400/40 bg-emerald-500/20 px-3 py-1.5"

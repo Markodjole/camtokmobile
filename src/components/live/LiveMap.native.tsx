@@ -1,9 +1,8 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import MapView, {
-  Circle,
   Marker,
   Polyline,
-  PROVIDER_DEFAULT,
+  PROVIDER_GOOGLE,
   type Region,
 } from "react-native-maps";
 import { View } from "react-native";
@@ -19,6 +18,8 @@ type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
   followDriver?: boolean;
+  /** Higher zoom = closer view. Default 17. Pass 19 for driver close-up. */
+  followZoom?: number;
   /** Increment to clear smoothing/camera state and re-seed from the latest point (recovery when stuck). */
   mapResetKey?: number;
 };
@@ -51,12 +52,13 @@ const MAX_PROJECT_MS = 1500;
 const COAST_MAX_MS = 6000;
 const COAST_DECAY_PER_SEC = 0.72;
 // Camera tick gate (ms). Prevents starving the JS thread.
-const CAMERA_MIN_INTERVAL_MS = 60;
+const CAMERA_MIN_INTERVAL_MS = 100;
 // Camera heading smoothing. Lower values = more stable, less twitch.
 const CAMERA_HEADING_BLEND = 0.16;
 // Maximum camera heading rotation speed (deg/sec) to avoid snap turns.
-const CAMERA_MAX_TURN_RATE_DPS = 120;
+const CAMERA_MAX_TURN_RATE_DPS = 90;
 const FORWARD_EPS = 0;
+const MOVEMENT_EPS2 = 1e-10;
 
 function shortestAngle(prev: number, next: number): number {
   let d = ((next - prev + 540) % 360) - 180;
@@ -66,10 +68,11 @@ function shortestAngle(prev: number, next: number): number {
 function directionalRailPolyline(
   polyline: Array<{ lat: number; lng: number }>,
   vehicle: { lat: number; lng: number; heading?: number } | null,
+  headingDeg?: number,
 ) {
-  if (polyline.length < 2 || !vehicle || vehicle.heading == null) return [];
+  if (polyline.length < 2 || !vehicle || headingDeg == null) return [];
 
-  const headingRad = (vehicle.heading * Math.PI) / 180;
+  const headingRad = (headingDeg * Math.PI) / 180;
   const hLat = Math.cos(headingRad); // north/south axis
   const hLng = Math.sin(headingRad); // east/west axis
 
@@ -120,6 +123,33 @@ function directionalRailPolyline(
   return forwardOnly.length > 1 ? forwardOnly : [];
 }
 
+function inferMovementHeading(routePoints: RoutePoint[]): number | null {
+  if (routePoints.length < 2) return null;
+  const a = routePoints[routePoints.length - 2]!;
+  const b = routePoints[routePoints.length - 1]!;
+  const dLat = b.lat - a.lat;
+  const dLng = b.lng - a.lng;
+  const mag2 = dLat * dLat + dLng * dLng;
+  if (mag2 <= MOVEMENT_EPS2) return null;
+  const rad = Math.atan2(dLng, dLat);
+  const deg = (rad * 180) / Math.PI;
+  return (deg + 360) % 360;
+}
+
+function isPointBehindVehicle(
+  vehicle: { lat: number; lng: number },
+  headingDeg: number,
+  point: { lat: number; lng: number },
+) {
+  const headingRad = (headingDeg * Math.PI) / 180;
+  const hLat = Math.cos(headingRad);
+  const hLng = Math.sin(headingRad);
+  const dLat = point.lat - vehicle.lat;
+  const dLng = point.lng - vehicle.lng;
+  const forwardness = dLat * hLat + dLng * hLng;
+  return forwardness < FORWARD_EPS;
+}
+
 /**
  * Native live map.
  *
@@ -135,6 +165,7 @@ function LiveMapInner({
   routePoints,
   driverRoute,
   followDriver = true,
+  followZoom = 17,
   mapResetKey = 0,
 }: Props) {
   const mapRef = useRef<MapView>(null);
@@ -371,9 +402,9 @@ function LiveMapInner({
           mapRef.current?.setCamera({
             center: { latitude: newLat, longitude: newLng },
             heading: ((camHeading % 360) + 360) % 360,
-            pitch: 50,
-            altitude: 250,
-            zoom: 18,
+            pitch: 0,
+            altitude: followZoom >= 18 ? 150 : 400,
+            zoom: followZoom,
           });
           lastCameraTsRef.current = now;
         }
@@ -390,24 +421,51 @@ function LiveMapInner({
     };
   }, [followDriver]);
 
+  // Cap to last 40 points — avoids ever-growing polyline re-renders
   const historyCoords = useMemo(
-    () => routePoints.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    () =>
+      routePoints
+        .slice(-40)
+        .map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [routePoints],
   );
+
+  const movementHeading = useMemo(
+    () => inferMovementHeading(routePoints),
+    [routePoints],
+  );
+  const railHeading = movementHeading ?? smoothedLast?.heading ?? null;
 
   const railCoords = useMemo(
     () => {
       const directional = directionalRailPolyline(
         driverRoute?.routePolyline ?? [],
         smoothedLast ?? null,
+        railHeading ?? undefined,
       );
       return directional.map((p) => ({
         latitude: p.lat,
         longitude: p.lng,
       }));
     },
-    [driverRoute, smoothedLast?.lat, smoothedLast?.lng, smoothedLast?.heading],
+    [
+      driverRoute,
+      smoothedLast?.lat,
+      smoothedLast?.lng,
+      smoothedLast?.heading,
+      railHeading,
+    ],
   );
+
+  const railEnd = useMemo(() => {
+    if (driverRoute?.checkpoint) return driverRoute.checkpoint;
+    const poly = driverRoute?.routePolyline ?? [];
+    return poly.length > 0 ? poly[poly.length - 1] : null;
+  }, [driverRoute]);
+  const passedRailEnd = useMemo(() => {
+    if (!smoothedLast || !railEnd || railHeading == null) return false;
+    return isPointBehindVehicle(smoothedLast, railHeading, railEnd);
+  }, [smoothedLast, railEnd, railHeading]);
 
   const region: Region = {
     latitude: last?.lat ?? 44.0,
@@ -420,7 +478,7 @@ function LiveMapInner({
     <View style={{ flex: 1 }}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_DEFAULT}
+        provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
         initialRegion={initialRegion ?? region}
         showsUserLocation={false}
@@ -433,40 +491,21 @@ function LiveMapInner({
         {historyCoords.length > 1 ? (
           <Polyline
             coordinates={historyCoords}
-            strokeColor="#10b981"
+            strokeColor="rgba(16,185,129,0.7)"
+            strokeWidth={3}
+          />
+        ) : null}
+
+        {/* Single blue rail — one pass is enough */}
+        {!passedRailEnd && railCoords.length > 1 ? (
+          <Polyline
+            coordinates={railCoords}
+            strokeColor="rgba(59,130,246,0.8)"
             strokeWidth={5}
-            lineDashPattern={undefined}
           />
         ) : null}
 
-        {railCoords.length > 1 ? (
-          <Polyline
-            coordinates={railCoords}
-            strokeColor="rgba(29,78,216,0.4)"
-            strokeWidth={14}
-          />
-        ) : null}
-        {railCoords.length > 1 ? (
-          <Polyline
-            coordinates={railCoords}
-            strokeColor="rgba(59,130,246,0.85)"
-            strokeWidth={7}
-          />
-        ) : null}
-
-        {driverRoute?.turnPoint ? (
-          <Circle
-            center={{
-              latitude: driverRoute.turnPoint.lat,
-              longitude: driverRoute.turnPoint.lng,
-            }}
-            radius={16}
-            strokeColor="#2563eb"
-            strokeWidth={2}
-            fillColor="rgba(59,130,246,0.22)"
-          />
-        ) : null}
-        {driverRoute?.turnPoint ? (
+        {!passedRailEnd && driverRoute?.turnPoint ? (
           <Marker
             coordinate={{
               latitude: driverRoute.turnPoint.lat,

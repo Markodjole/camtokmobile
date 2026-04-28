@@ -1,5 +1,5 @@
 import "../global.css";
-import { Redirect, Stack, useSegments } from "expo-router";
+import { Redirect, Stack, usePathname, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -26,6 +26,7 @@ export default function RootLayout() {
 function AuthGate() {
   const { session, isLoading } = useAuth();
   const segments = useSegments();
+  const pathname = usePathname();
 
   if (isLoading) {
     return <View style={{ flex: 1, backgroundColor: "#000" }} />;
@@ -39,9 +40,13 @@ function AuthGate() {
     return <Redirect href="/(tabs)/live" />;
   }
 
+  // Fullscreen screens manage their own chrome
+  const isFullscreen =
+    pathname.startsWith("/room/") || pathname.startsWith("/live/go/");
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
-      <AppTopBar />
+      {!isFullscreen && <AppTopBar />}
       <View style={{ flex: 1 }}>
         <Stack
           screenOptions={{
@@ -62,7 +67,7 @@ function AuthGate() {
           />
         </Stack>
       </View>
-      <AppBottomBar />
+      {!isFullscreen && <AppBottomBar />}
     </View>
   );
 }

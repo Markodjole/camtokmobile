@@ -456,8 +456,8 @@ export async function startViewerP2p(
       if (cleaned || offerEverReceived) { clearReadyRetry(); return; }
       n++;
       sendReady();
-      if (n >= 6) clearReadyRetry();
-    }, 1500);
+      if (n >= 12) clearReadyRetry(); // ping up to ~24 s
+    }, 2000);
   };
 
   await new Promise((r) => setTimeout(r, 120));
@@ -466,6 +466,7 @@ export async function startViewerP2p(
     startReadyRetry();
   }
 
+  // Give ICE 25 s before declaring stuck — mobile networks can take 10-15 s.
   stuckTimer = setInterval(() => {
     if (cleaned) { clearStuck(); return; }
     const s = pc?.iceConnectionState;
@@ -477,7 +478,7 @@ export async function startViewerP2p(
     closeViewerPc();
     sendReady();
     startReadyRetry();
-  }, 6000);
+  }, 25_000);
 
   return () => {
     cleaned = true;

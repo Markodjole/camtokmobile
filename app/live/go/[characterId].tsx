@@ -13,6 +13,7 @@ import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveMapStale } from "@/hooks/useLiveMapStale";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
 
 const MODES: { id: TransportMode; label: string; emoji: string }[] = [
@@ -53,6 +54,7 @@ export default function GoLiveControlScreen() {
     transportMode,
     onError: onTelemetryError,
   });
+  const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
 
   // Pre-fetch map tiles for current GPS location as soon as we have a point
   const lastPoint = routePoints[routePoints.length - 1];
@@ -63,7 +65,7 @@ export default function GoLiveControlScreen() {
     lng: lastPoint?.lng,
     requireMovement: true,
     speedMps: lastPoint?.speedMps,
-    staleAfterMs: 10_000,
+    staleAfterMs: 25_000,
     enabled: !!sessionId && routePoints.length > 0,
   });
 
@@ -110,6 +112,7 @@ export default function GoLiveControlScreen() {
       }).catch(() => undefined);
       setSessionId(null);
       setRoomId(null);
+      clearBroadcastStore();
       Alert.alert("Ended", "Live session ended.");
     } finally {
       setEnding(false);
@@ -120,9 +123,6 @@ export default function GoLiveControlScreen() {
     <Screen padded={false}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View className="px-4 pt-2">
-        <LiveModeSwitch />
-      </View>
       <View className="flex-row items-center gap-3 px-4 pt-2">
         <Pressable
           onPress={blurOnWeb(() => router.back())}
@@ -313,7 +313,7 @@ export default function GoLiveControlScreen() {
                 variant="secondary"
                 onPress={() =>
                   router.push(
-                    `/room/${roomId}?sessionId=${encodeURIComponent(sessionId)}`,
+                    `/room/${roomId}?sessionId=${encodeURIComponent(sessionId)}&mode=driver`,
                   )
                 }
                 fullWidth
