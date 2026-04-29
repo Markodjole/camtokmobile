@@ -32,8 +32,10 @@ type Props = {
     isActive?: boolean;
   }>;
   followDriver?: boolean;
+  followZoom?: number;
   mapResetKey?: number;
   showGuidanceLine?: boolean;
+  onUserInteract?: () => void;
 };
 
 const FORWARD_EPS = 0;
@@ -79,8 +81,11 @@ export function LiveMap({
   driverRoute,
   zones = [],
   checkpoints = [],
+  followDriver = true,
+  followZoom = 16,
   mapResetKey = 0,
   showGuidanceLine = false,
+  onUserInteract,
 }: Props) {
   // Keep Leaflet instance alive in refs
   const containerRef = useRef<any>(null);
@@ -121,7 +126,7 @@ export function LiveMap({
 
     const map = L.map(container, {
       center,
-      zoom: last ? 16 : 5,
+      zoom: last ? followZoom : 5,
       zoomControl: true,
       attributionControl: false,
       // Smooth panning / zooming
@@ -142,6 +147,9 @@ export function LiveMap({
     ).addTo(map);
 
     mapRef.current = map;
+    map.on("dragstart", () => {
+      onUserInteract?.();
+    });
 
     return () => {
       map.remove();
@@ -211,9 +219,11 @@ export function LiveMap({
       const blend = 0.24;
       const nextLat = center.lat + (last.lat - center.lat) * blend;
       const nextLng = center.lng + (last.lng - center.lng) * blend;
-      map.setView([nextLat, nextLng], map.getZoom(), { animate: false });
+      if (followDriver) {
+        map.setView([nextLat, nextLng], map.getZoom(), { animate: false });
+      }
     }
-  }, [routePoints]);
+  }, [routePoints, followDriver]);
 
   // User-triggered: snap map view to latest point (recovery when stuck)
   useEffect(() => {
@@ -223,9 +233,12 @@ export function LiveMap({
     const pts = routePointsRef.current;
     const last = pts[pts.length - 1];
     if (last) {
-      map.panTo([last.lat, last.lng], { animate: true, duration: 0.35, easeLinearity: 0.4 });
+      map.setView([last.lat, last.lng], followZoom, {
+        animate: true,
+        duration: 0.35,
+      });
     }
-  }, [mapResetKey]);
+  }, [mapResetKey, followZoom]);
 
   // ── Update driver-route overlay imperatively ───────────────────────────
   useEffect(() => {

@@ -46,6 +46,8 @@ type Props = {
   mapResetKey?: number;
   /** Draw blue 50m line only for driver mode. */
   showGuidanceLine?: boolean;
+  /** Called when user manually pans/zooms map. */
+  onUserInteract?: () => void;
 };
 
 const NAV_ZOOM_DELTA = 0.0012;
@@ -139,6 +141,7 @@ function LiveMapInner({
   followZoom = 17,
   mapResetKey = 0,
   showGuidanceLine = false,
+  onUserInteract,
 }: Props) {
   const mapRef = useRef<MapView>(null);
   const rafRef = useRef<number | null>(null);
@@ -468,6 +471,7 @@ function LiveMapInner({
         moveOnMarkerPress={false}
         rotateEnabled={false}
         pitchEnabled={false}
+        onPanDrag={onUserInteract}
       >
         {historyCoords.length > 1 ? (
           <Polyline

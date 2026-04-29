@@ -66,6 +66,7 @@ export default function RoomScreen() {
   const [betAmount, setBetAmount] = useState(10);
   // Keep map as the default fullscreen layer (web parity for room navigation in-app).
   const [mapExpanded, setMapExpanded] = useState(true);
+  const [mapFollow, setMapFollow] = useState(true);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
@@ -301,8 +302,10 @@ export default function RoomScreen() {
         <LiveMap
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
-          followZoom={isDriverMode ? 17 : 17}
+          followDriver={mapFollow}
+          followZoom={isDriverMode ? 17 : 16}
           showGuidanceLine={isDriverMode}
+          onUserInteract={() => setMapFollow(false)}
           driverRoute={
             driverRoute.data
               ? {
@@ -320,8 +323,8 @@ export default function RoomScreen() {
                 }
               : null
           }
-          zones={googleGeo.data?.zones ?? []}
-          checkpoints={googleGeo.data?.checkpoints ?? []}
+          zones={isDriverMode ? [] : (googleGeo.data?.zones ?? [])}
+          checkpoints={isDriverMode ? [] : (googleGeo.data?.checkpoints ?? [])}
         />
       </View>
 
@@ -402,14 +405,25 @@ export default function RoomScreen() {
       </SafeAreaView>
 
       {/* Map controls */}
-      {mapExpanded ? (
+      {mapExpanded && !mapFollow ? (
         <View style={{ position: "absolute", right: 12, top: 160, zIndex: 45 }}>
           <Pressable
-            onPress={blurOnWeb(refreshMap)}
-            accessibilityLabel="Refresh map"
-            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.7)", alignItems: "center", justifyContent: "center" }}
+            onPress={blurOnWeb(() => setMapFollow(true))}
+            accessibilityLabel="Recenter on streamer"
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: "rgba(252,211,77,0.5)",
+              backgroundColor: "rgba(245,158,11,0.35)",
+              paddingHorizontal: 10,
+              paddingVertical: 7,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            <Text style={{ color: "#fff", fontSize: 18 }}>↻</Text>
+            <Text style={{ color: "#fffbeb", fontSize: 11, fontWeight: "700" }}>
+              ◎ Center on streamer
+            </Text>
           </Pressable>
         </View>
       ) : null}
