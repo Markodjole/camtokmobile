@@ -17,7 +17,7 @@ import { TransportModeIcon } from "@/components/live/TransportModeIcon";
 import { useCountdown } from "@/hooks/useCountdown";
 import {
   useDriverRoute,
-  useGoogleGeoContext,
+  useCityGridCells,
   useLiveRoom,
   usePlaceBet,
   useRoutePoints,
@@ -160,6 +160,8 @@ export default function RoomScreen() {
   // driver-route pin so the gate still works while a market is being
   // (re)opened.
   const distanceLocked = (() => {
+    // City grid markets use time-only locking — no turn-point distance gate.
+    if (currentMarket?.marketType === "city_grid") return false;
     const last =
       (room.data?.routePoints?.[room.data.routePoints.length - 1]) ??
       (routePoints.data?.[routePoints.data.length - 1]);
@@ -198,18 +200,37 @@ export default function RoomScreen() {
   ]);
 
   const lastResolved = resolvedRoutePoints[resolvedRoutePoints.length - 1];
-  const geoAnchor = useMemo(() => {
-    if (lastResolved) return { lat: lastResolved.lat, lng: lastResolved.lng };
-    if (
-      currentMarket?.turnPointLat != null &&
-      currentMarket?.turnPointLng != null
-    ) {
-      return { lat: currentMarket.turnPointLat, lng: currentMarket.turnPointLng };
-    }
-    // Keep overlays available even before first GPS point lands.
-    return { lat: 44.8125, lng: 20.4612 };
-  }, [lastResolved, currentMarket?.turnPointLat, currentMarket?.turnPointLng]);
-  const googleGeo = useGoogleGeoContext(geoAnchor.lat, geoAnchor.lng);
+  const lastLat = lastResolved?.lat ?? null;
+  const lastLng = lastResolved?.lng ?? null;
+  const gridAnchorLat = lastLat ?? currentMarket?.turnPointLat ?? null;
+  const gridAnchorLng = lastLng ?? currentMarket?.turnPointLng ?? null;
+  const cityGridSpec =
+    currentMarket?.marketType === "city_grid"
+      ? (currentMarket.cityGridSpec ?? null)
+      : null;
+  const cityGridCells = useCityGridCells(cityGridSpec, gridAnchorLat, gridAnchorLng);
+  const [selectedGridCellId, setSelectedGridCellId] = useState<string | null>(null);
+
+  // Clear selected cell whenever a new market opens.
+  const currentMarketId = currentMarket?.id ?? null;
+  useEffect(() => {
+    setSelectedGridCellId(null);
+  }, [currentMarketId]);
+
+  const gridZones = useMemo(
+    () =>
+      isDriverMode
+        ? []
+        : cityGridCells.map((c) => ({
+            id: c.id,
+            name: c.label,
+            color: `hsl(${(c.col * 37 + c.row * 17) % 360} 52% 42%)`,
+            polygon: c.polygon,
+            isActive: true,
+          })),
+    [isDriverMode, cityGridCells],
+  );
+
   const mapStale = useLiveMapStale({
     lat: lastResolved?.lat,
     lng: lastResolved?.lng,
@@ -263,6 +284,9 @@ export default function RoomScreen() {
         optionId,
         stakeAmount: betAmount,
       });
+      if (currentMarket.marketType === "city_grid") {
+        setSelectedGridCellId(null);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Bet failed";
       setBetError(msg);
@@ -334,8 +358,14 @@ export default function RoomScreen() {
                 }
               : null
           }
-          zones={isDriverMode ? [] : (googleGeo.data?.zones ?? [])}
-          checkpoints={isDriverMode ? [] : (googleGeo.data?.checkpoints ?? [])}
+          zones={gridZones}
+          checkpoints={[]}
+          selectedZoneId={selectedGridCellId}
+          onZoneSelect={
+            isDriverMode || currentMarket?.marketType !== "city_grid"
+              ? undefined
+              : (id) => setSelectedGridCellId(id)
+          }
         />
       </View>
 
@@ -503,6 +533,18 @@ export default function RoomScreen() {
             routePoints={resolvedRoutePoints}
             sessionId={effectiveSessionId}
           />
+        ) : currentMarket?.marketType === "city_grid" ? (
+          <GridBetBar
+            selectedCellLabel={
+              selectedGridCellId
+                ? (cityGridCells.find((c) => c.id === selectedGridCellId)?.label ?? null)
+                : null
+            }
+            betAmount={betAmount}
+            locked={locked || !currentMarket || placeBet.isPending}
+            onBet={selectedGridCellId ? () => handleBet(selectedGridCellId) : undefined}
+            error={betError}
+          />
         ) : (
           <>
             <DirectionalBetPad
@@ -546,6 +588,58 @@ function MarketTimer({ locksAt }: { locksAt: string }) {
     <Text className={`text-xs font-semibold ${color}`}>
       {secondsLeft <= 0 ? "locked" : label}
     </Text>
+  );
+}
+
+function GridBetBar({
+  selectedCellLabel,
+  betAmount,
+  locked,
+  onBet,
+  error,
+}: {
+  selectedCellLabel: string | null;
+  betAmount: number;
+  locked: boolean;
+  onBet?: () => void;
+  error: string | null;
+}) {
+  const canBet = !locked && !!onBet && !!selectedCellLabel;
+  return (
+    <View
+      style={{
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.15)",
+        backgroundColor: "rgba(0,0,0,0.75)",
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 11 }}>
+        {locked ? "Betting closed" : selectedCellLabel ? `Square ${selectedCellLabel} selected` : "Tap a square on the map to bet"}
+      </Text>
+      {error ? (
+        <Text style={{ color: "#f87171", fontSize: 11 }}>{error}</Text>
+      ) : null}
+      <Pressable
+        disabled={!canBet}
+        onPress={canBet ? blurOnWeb(() => void onBet()) : undefined}
+        style={{
+          borderRadius: 12,
+          backgroundColor: canBet ? "#ef4444" : "rgba(255,255,255,0.12)",
+          paddingVertical: 9,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ color: canBet ? "#fff" : "rgba(255,255,255,0.35)", fontWeight: "700", fontSize: 13 }}>
+          {locked ? "Locked" : canBet ? `Place $${betAmount} on ${selectedCellLabel}` : "Select a square"}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 

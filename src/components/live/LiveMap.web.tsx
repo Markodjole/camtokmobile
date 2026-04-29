@@ -31,6 +31,8 @@ type Props = {
     lng: number;
     isActive?: boolean;
   }>;
+  selectedZoneId?: string | null;
+  onZoneSelect?: (id: string | null) => void;
   followDriver?: boolean;
   followZoom?: number;
   mapResetKey?: number;
@@ -81,6 +83,8 @@ export function LiveMap({
   driverRoute,
   zones = [],
   checkpoints = [],
+  selectedZoneId = null,
+  onZoneSelect,
   followDriver = true,
   followZoom = 16,
   mapResetKey = 0,
@@ -310,14 +314,27 @@ export function LiveMap({
     checkpointsLayerRef.current.clearLayers();
 
     zones.forEach((z) => {
-      const pts = z.polygon.map((p) => [p.lat, p.lng]);
+      const pts = z.polygon.map((p: { lat: number; lng: number }) => [p.lat, p.lng]);
       if (pts.length < 3) return;
-      L.polygon(pts, {
-        color: z.color || "#60a5fa",
-        weight: 2,
+      const selected = selectedZoneId === z.id;
+      const poly = L.polygon(pts, {
+        color: selected ? "#ffffff" : (z.color || "#60a5fa"),
+        weight: selected ? 3 : 2,
         fillColor: z.color || "#60a5fa",
-        fillOpacity: 0.2,
-      }).addTo(zonesLayerRef.current);
+        fillOpacity: selected ? 0.35 : 0.2,
+      });
+      if (onZoneSelect) {
+        poly.on("click", () => onZoneSelect(selected ? null : z.id));
+        poly.getElement?.()?.style && (poly.getElement().style.cursor = "pointer");
+      }
+      poly.addTo(zonesLayerRef.current);
+      if (/^[A-Z][A-Z]*\d+$/.test(z.name) && zones.length <= 140) {
+        poly.bindTooltip(z.name, {
+          permanent: true,
+          direction: "center",
+          className: "camtok-mobile-grid-lbl",
+        });
+      }
     });
 
     checkpoints.forEach((cp) => {
@@ -331,7 +348,7 @@ export function LiveMap({
         .bindTooltip(cp.name, { direction: "top", opacity: 0.9 })
         .addTo(checkpointsLayerRef.current);
     });
-  }, [zones, checkpoints]);
+  }, [zones, checkpoints, selectedZoneId, onZoneSelect]);
 
   const hasPoints = routePoints.length > 0;
 

@@ -30,16 +30,38 @@ export type LiveMarketOption = {
   displayOrder: number;
 };
 
+export type CityGridSpec = {
+  cellMeters: number;
+  swLat: number;
+  swLng: number;
+  dLat: number;
+  dLng: number;
+  nCols: number;
+  nRows: number;
+  cityLabel: string | null;
+};
+
+export type GridCell = {
+  id: string;
+  label: string;
+  row: number;
+  col: number;
+  polygon: Array<{ lat: number; lng: number }>;
+};
+
 export type LiveMarketSummary = {
   id: string;
   title: string;
   marketType: string;
   locksAt: string;
   revealAt: string;
+  /** Empty for `city_grid` markets (options derived client-side from cityGridSpec). */
   options: LiveMarketOption[];
   participantCount: number;
   turnPointLat: number | null;
   turnPointLng: number | null;
+  /** Present when marketType === "city_grid" */
+  cityGridSpec: CityGridSpec | null;
 };
 
 export type LiveFeedRow = {

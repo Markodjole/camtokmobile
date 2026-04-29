@@ -39,6 +39,10 @@ type Props = {
     lng: number;
     isActive?: boolean;
   }>;
+  /** Highlighted zone id (for city grid: the selected cell). */
+  selectedZoneId?: string | null;
+  /** Called when user taps a zone polygon. */
+  onZoneSelect?: (id: string | null) => void;
   followDriver?: boolean;
   /** Higher zoom = closer view. Default 17. Pass 19 for driver close-up. */
   followZoom?: number;
@@ -137,6 +141,8 @@ function LiveMapInner({
   driverRoute,
   zones = [],
   checkpoints = [],
+  selectedZoneId = null,
+  onZoneSelect,
   followDriver = true,
   followZoom = 17,
   mapResetKey = 0,
@@ -481,15 +487,20 @@ function LiveMapInner({
           />
         ) : null}
 
-        {zones.map((z) => (
-          <Polygon
-            key={z.id}
-            coordinates={z.polygon.map((p) => ({ latitude: p.lat, longitude: p.lng }))}
-            strokeColor={z.color || "#60a5fa"}
-            fillColor={`${z.color || "#60a5fa"}33`}
-            strokeWidth={2}
-          />
-        ))}
+        {zones.map((z) => {
+          const selected = selectedZoneId === z.id;
+          return (
+            <Polygon
+              key={z.id}
+              coordinates={z.polygon.map((p) => ({ latitude: p.lat, longitude: p.lng }))}
+              strokeColor={selected ? "#ffffff" : (z.color || "#60a5fa")}
+              fillColor={selected ? "rgba(255,255,255,0.28)" : `${z.color || "#60a5fa"}44`}
+              strokeWidth={selected ? 3 : 2}
+              tappable={!!onZoneSelect}
+              onPress={onZoneSelect ? () => onZoneSelect(selected ? null : z.id) : undefined}
+            />
+          );
+        })}
 
         {checkpoints.map((cp) => (
           <Marker
@@ -561,6 +572,7 @@ export const LiveMap = memo(LiveMapInner, (prev, next) => {
   if (prev.showGuidanceLine !== next.showGuidanceLine) return false;
   if ((prev.zones?.length ?? 0) !== (next.zones?.length ?? 0)) return false;
   if ((prev.checkpoints?.length ?? 0) !== (next.checkpoints?.length ?? 0)) return false;
+  if (prev.selectedZoneId !== next.selectedZoneId) return false;
   if (prev.mapResetKey !== next.mapResetKey) return false;
   const prevLast = prev.routePoints[prev.routePoints.length - 1];
   const nextLast = next.routePoints[next.routePoints.length - 1];
