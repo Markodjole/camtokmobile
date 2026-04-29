@@ -70,36 +70,19 @@ function colLabel(col: number): string {
 }
 
 /**
- * Memoized: derives 500 m grid cells from a `CityGridSpec` for a viewport
- * centered on (lat, lng) ± 0.008°. Pure computation — no network call.
- * Rounded lat/lng to 3 dp so the list only rebuilds when the driver has
- * moved ~110 m (avoids every-GPS-tick re-renders).
+ * Memoized: derives full-city 500 m grid cells from `CityGridSpec`.
  */
 export function useCityGridCells(
   spec: CityGridSpec | null | undefined,
-  lat: number | null,
-  lng: number | null,
+  _lat: number | null,
+  _lng: number | null,
 ): GridCell[] {
-  const rLat = lat != null ? Math.round(lat * 1000) / 1000 : null;
-  const rLng = lng != null ? Math.round(lng * 1000) / 1000 : null;
-
   return useMemo<GridCell[]>(() => {
-    if (!spec || rLat == null || rLng == null) return [];
-    const pad = 0.008;
-    const south = rLat - pad;
-    const north = rLat + pad;
-    const west = rLng - pad;
-    const east = rLng + pad;
-
-    const col0 = Math.max(0, Math.floor((west - spec.swLng) / spec.dLng));
-    const col1 = Math.min(spec.nCols - 1, Math.ceil((east - spec.swLng) / spec.dLng) - 1);
-    const row0 = Math.max(0, Math.floor((south - spec.swLat) / spec.dLat));
-    const row1 = Math.min(spec.nRows - 1, Math.ceil((north - spec.swLat) / spec.dLat) - 1);
-    if (col0 > col1 || row0 > row1) return [];
+    if (!spec) return [];
 
     const cells: GridCell[] = [];
-    for (let col = col0; col <= col1; col += 1) {
-      for (let row = row0; row <= row1; row += 1) {
+    for (let col = 0; col < spec.nCols; col += 1) {
+      for (let row = 0; row < spec.nRows; row += 1) {
         const w = spec.swLat + row * spec.dLat;
         const s = spec.swLng + col * spec.dLng;
         const nLat = w + spec.dLat;
@@ -120,7 +103,7 @@ export function useCityGridCells(
     }
     return cells;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spec?.swLat, spec?.swLng, spec?.dLat, spec?.dLng, spec?.nCols, spec?.nRows, rLat, rLng]);
+  }, [spec?.swLat, spec?.swLng, spec?.dLat, spec?.dLng, spec?.nCols, spec?.nRows, _lat, _lng]);
 }
 
 export function usePlaceBet(roomId: string | null) {

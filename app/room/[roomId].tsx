@@ -67,6 +67,7 @@ export default function RoomScreen() {
   // Keep map as the default fullscreen layer (web parity for room navigation in-app).
   const [mapExpanded, setMapExpanded] = useState(true);
   const [mapFollow, setMapFollow] = useState(true);
+  const [showZones, setShowZones] = useState(true);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
@@ -219,7 +220,7 @@ export default function RoomScreen() {
 
   const gridZones = useMemo(
     () =>
-      isDriverMode
+      isDriverMode || !showZones
         ? []
         : cityGridCells.map((c) => ({
             id: c.id,
@@ -228,7 +229,7 @@ export default function RoomScreen() {
             polygon: c.polygon,
             isActive: true,
           })),
-    [isDriverMode, cityGridCells],
+    [isDriverMode, showZones, cityGridCells],
   );
 
   const mapStale = useLiveMapStale({
@@ -446,6 +447,28 @@ export default function RoomScreen() {
       </SafeAreaView>
 
       {/* Map controls */}
+      {mapExpanded && !isDriverMode ? (
+        <View style={{ position: "absolute", right: 12, top: 122, zIndex: 45 }}>
+          <Pressable
+            onPress={blurOnWeb(() => setShowZones((v) => !v))}
+            accessibilityLabel={showZones ? "Hide zones" : "Show zones"}
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: showZones ? "rgba(6,182,212,0.5)" : "rgba(255,255,255,0.25)",
+              backgroundColor: showZones ? "rgba(6,182,212,0.32)" : "rgba(0,0,0,0.45)",
+              paddingHorizontal: 10,
+              paddingVertical: 7,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+              ▦ {showZones ? "Zones on" : "Zones off"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
       {mapExpanded && !mapFollow ? (
         <View style={{ position: "absolute", right: 12, top: 160, zIndex: 45 }}>
           <Pressable
