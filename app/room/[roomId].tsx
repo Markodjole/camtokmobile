@@ -198,7 +198,18 @@ export default function RoomScreen() {
   ]);
 
   const lastResolved = resolvedRoutePoints[resolvedRoutePoints.length - 1];
-  const googleGeo = useGoogleGeoContext(lastResolved?.lat ?? null, lastResolved?.lng ?? null);
+  const geoAnchor = useMemo(() => {
+    if (lastResolved) return { lat: lastResolved.lat, lng: lastResolved.lng };
+    if (
+      currentMarket?.turnPointLat != null &&
+      currentMarket?.turnPointLng != null
+    ) {
+      return { lat: currentMarket.turnPointLat, lng: currentMarket.turnPointLng };
+    }
+    // Keep overlays available even before first GPS point lands.
+    return { lat: 44.8125, lng: 20.4612 };
+  }, [lastResolved, currentMarket?.turnPointLat, currentMarket?.turnPointLng]);
+  const googleGeo = useGoogleGeoContext(geoAnchor.lat, geoAnchor.lng);
   const mapStale = useLiveMapStale({
     lat: lastResolved?.lat,
     lng: lastResolved?.lng,
