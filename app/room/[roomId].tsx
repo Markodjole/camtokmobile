@@ -17,6 +17,7 @@ import { TransportModeIcon } from "@/components/live/TransportModeIcon";
 import { useCountdown } from "@/hooks/useCountdown";
 import {
   useDriverRoute,
+  useGoogleGeoContext,
   useLiveRoom,
   usePlaceBet,
   useRoutePoints,
@@ -196,6 +197,7 @@ export default function RoomScreen() {
   ]);
 
   const lastResolved = resolvedRoutePoints[resolvedRoutePoints.length - 1];
+  const googleGeo = useGoogleGeoContext(lastResolved?.lat ?? null, lastResolved?.lng ?? null);
   const mapStale = useLiveMapStale({
     lat: lastResolved?.lat,
     lng: lastResolved?.lng,
@@ -299,7 +301,7 @@ export default function RoomScreen() {
         <LiveMap
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
-          followZoom={isDriverMode ? 18 : 17}
+          followZoom={isDriverMode ? 17 : 17}
           showGuidanceLine={isDriverMode}
           driverRoute={
             driverRoute.data
@@ -318,6 +320,8 @@ export default function RoomScreen() {
                 }
               : null
           }
+          zones={googleGeo.data?.zones ?? []}
+          checkpoints={googleGeo.data?.checkpoints ?? []}
         />
       </View>
 

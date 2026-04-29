@@ -17,6 +17,20 @@ type DriverRouteOverlay = {
 type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
+  zones?: Array<{
+    id: string;
+    name: string;
+    color: string;
+    polygon: Array<{ lat: number; lng: number }>;
+    isActive?: boolean;
+  }>;
+  checkpoints?: Array<{
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    isActive?: boolean;
+  }>;
   followDriver?: boolean;
   mapResetKey?: number;
   showGuidanceLine?: boolean;
@@ -63,6 +77,8 @@ function isPointBehindVehicle(
 export function LiveMap({
   routePoints,
   driverRoute,
+  zones = [],
+  checkpoints = [],
   mapResetKey = 0,
   showGuidanceLine = false,
 }: Props) {
@@ -73,6 +89,8 @@ export function LiveMap({
   const routePolyRef = useRef<any>(null);
   const driverPolyRef = useRef<any>(null);
   const turnCircleRef = useRef<any>(null);
+  const zonesLayerRef = useRef<any>(null);
+  const checkpointsLayerRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const routePointsRef = useRef(routePoints);
@@ -132,6 +150,8 @@ export function LiveMap({
       routePolyRef.current = null;
       driverPolyRef.current = null;
       turnCircleRef.current = null;
+      zonesLayerRef.current = null;
+      checkpointsLayerRef.current = null;
       markerRef.current = null;
       initializedRef.current = false;
     };
@@ -265,6 +285,40 @@ export function LiveMap({
       ).addTo(map);
     }
   }, [driverRoute, routePoints, showGuidanceLine]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const L = require("leaflet");
+
+    if (!zonesLayerRef.current) zonesLayerRef.current = L.layerGroup().addTo(map);
+    if (!checkpointsLayerRef.current) checkpointsLayerRef.current = L.layerGroup().addTo(map);
+    zonesLayerRef.current.clearLayers();
+    checkpointsLayerRef.current.clearLayers();
+
+    zones.forEach((z) => {
+      const pts = z.polygon.map((p) => [p.lat, p.lng]);
+      if (pts.length < 3) return;
+      L.polygon(pts, {
+        color: z.color || "#60a5fa",
+        weight: 2,
+        fillColor: z.color || "#60a5fa",
+        fillOpacity: 0.2,
+      }).addTo(zonesLayerRef.current);
+    });
+
+    checkpoints.forEach((cp) => {
+      L.circleMarker([cp.lat, cp.lng], {
+        radius: 5,
+        color: "#ffffff",
+        weight: 1,
+        fillColor: "#f59e0b",
+        fillOpacity: 0.95,
+      })
+        .bindTooltip(cp.name, { direction: "top", opacity: 0.9 })
+        .addTo(checkpointsLayerRef.current);
+    });
+  }, [zones, checkpoints]);
 
   const hasPoints = routePoints.length > 0;
 

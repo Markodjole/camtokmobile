@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 import MapView, {
   Marker,
+  Polygon,
   Polyline,
   PROVIDER_GOOGLE,
   type Region,
@@ -24,6 +25,20 @@ type DriverRouteOverlay = {
 type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
+  zones?: Array<{
+    id: string;
+    name: string;
+    color: string;
+    polygon: Array<{ lat: number; lng: number }>;
+    isActive?: boolean;
+  }>;
+  checkpoints?: Array<{
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    isActive?: boolean;
+  }>;
   followDriver?: boolean;
   /** Higher zoom = closer view. Default 17. Pass 19 for driver close-up. */
   followZoom?: number;
@@ -118,6 +133,8 @@ function isPointBehindVehicle(
 function LiveMapInner({
   routePoints,
   driverRoute,
+  zones = [],
+  checkpoints = [],
   followDriver = true,
   followZoom = 17,
   mapResetKey = 0,
@@ -460,6 +477,25 @@ function LiveMapInner({
           />
         ) : null}
 
+        {zones.map((z) => (
+          <Polygon
+            key={z.id}
+            coordinates={z.polygon.map((p) => ({ latitude: p.lat, longitude: p.lng }))}
+            strokeColor={z.color || "#60a5fa"}
+            fillColor={`${z.color || "#60a5fa"}33`}
+            strokeWidth={2}
+          />
+        ))}
+
+        {checkpoints.map((cp) => (
+          <Marker
+            key={cp.id}
+            coordinate={{ latitude: cp.lat, longitude: cp.lng }}
+            pinColor="#f59e0b"
+            title={cp.name}
+          />
+        ))}
+
         {/* Single blue rail — one pass is enough */}
         {showLine && !passedRailEnd && railCoords.length > 1 ? (
           <Polyline
@@ -519,6 +555,8 @@ function LiveMapInner({
 
 export const LiveMap = memo(LiveMapInner, (prev, next) => {
   if (prev.showGuidanceLine !== next.showGuidanceLine) return false;
+  if ((prev.zones?.length ?? 0) !== (next.zones?.length ?? 0)) return false;
+  if ((prev.checkpoints?.length ?? 0) !== (next.checkpoints?.length ?? 0)) return false;
   if (prev.mapResetKey !== next.mapResetKey) return false;
   const prevLast = prev.routePoints[prev.routePoints.length - 1];
   const nextLast = next.routePoints[next.routePoints.length - 1];

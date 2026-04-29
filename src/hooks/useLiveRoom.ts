@@ -7,6 +7,25 @@ import type {
   RoutePoint,
 } from "@/types/live";
 
+type GoogleGeoZone = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: "district" | "corridor" | "mission-zone" | "restricted-zone";
+  color: string;
+  isActive: boolean;
+  polygon: Array<{ lat: number; lng: number }>;
+};
+
+type GoogleGeoCheckpoint = {
+  id: string;
+  name: string;
+  kind: "bridge" | "square" | "landmark" | "crossing" | "poi";
+  lat: number;
+  lng: number;
+  isActive: boolean;
+};
+
 export function useLiveRoom(roomId: string | null) {
   return useQuery({
     queryKey: ["live-room", roomId],
@@ -52,6 +71,26 @@ export function useDriverRoute(roomId: string | null) {
     },
     refetchInterval: 450,
     staleTime: 1_000,
+  });
+}
+
+export function useGoogleGeoContext(lat: number | null, lng: number | null) {
+  return useQuery({
+    queryKey: ["google-geo-context", lat, lng],
+    enabled: lat != null && lng != null,
+    queryFn: async ({ signal }) => {
+      return apiFetch<{
+        zones: GoogleGeoZone[];
+        checkpoints: GoogleGeoCheckpoint[];
+        source?: string;
+        reason?: string;
+      }>(`/api/live/google-geo-context?lat=${lat}&lng=${lng}`, {
+        signal,
+        anonymous: true,
+      });
+    },
+    refetchInterval: 4000,
+    staleTime: 3000,
   });
 }
 
