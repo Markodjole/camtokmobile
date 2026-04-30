@@ -69,7 +69,7 @@ export default function RoomScreen() {
   // Keep map as the default fullscreen layer (web parity for room navigation in-app).
   const [mapExpanded, setMapExpanded] = useState(true);
   const [mapFollow, setMapFollow] = useState(true);
-  const [showZones, setShowZones] = useState(true);
+  const [showZones, setShowZones] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
