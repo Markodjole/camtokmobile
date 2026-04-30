@@ -325,6 +325,9 @@ export default function RoomScreen() {
   }
 
   const data = room.data;
+  const pipSize = 124;
+  const pipLeft = 12;
+  const pipBottom = Math.max(insets.bottom + 72, 96);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -335,7 +338,16 @@ export default function RoomScreen() {
         style={
           mapExpanded
             ? { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
-            : { position: "absolute", left: 12, top: 130, width: 144, height: 144, zIndex: 30, borderRadius: 16, overflow: "hidden" }
+            : {
+                position: "absolute",
+                left: pipLeft,
+                bottom: pipBottom,
+                width: pipSize,
+                height: pipSize,
+                zIndex: 30,
+                borderRadius: 16,
+                overflow: "hidden",
+              }
         }
       >
         <LiveMap
@@ -379,7 +391,16 @@ export default function RoomScreen() {
       <View
         style={
           mapExpanded
-            ? { position: "absolute", left: 12, top: 130, width: 144, height: 144, zIndex: 30, borderRadius: 16, overflow: "hidden" }
+            ? {
+                position: "absolute",
+                left: pipLeft,
+                bottom: pipBottom,
+                width: pipSize,
+                height: pipSize,
+                zIndex: 30,
+                borderRadius: 16,
+                overflow: "hidden",
+              }
             : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
         }
       >
@@ -537,8 +558,10 @@ export default function RoomScreen() {
         pointerEvents="none"
         style={{
           position: "absolute",
-          left: 12, top: 130,
-          width: 144, height: 144,
+          left: pipLeft,
+          bottom: pipBottom,
+          width: pipSize,
+          height: pipSize,
           zIndex: 31,
           borderRadius: 16,
           borderWidth: 1,
@@ -550,8 +573,8 @@ export default function RoomScreen() {
         onPress={() => setMapExpanded((v) => !v)}
         style={{
           position: "absolute",
-          left: 12 + 144 - 32,
-          top: 130 + 144 - 32,
+          left: pipLeft + pipSize - 32,
+          bottom: pipBottom + 6,
           zIndex: 32,
           width: 26, height: 26, borderRadius: 13,
           backgroundColor: "rgba(0,0,0,0.7)",
