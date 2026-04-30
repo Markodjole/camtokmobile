@@ -419,6 +419,27 @@ export function LiveMap({
         ref: containerRef,
         style: { width: "100%", height: "100%", background: "#111827" },
       })}
+      {destinationRoute && destinationRoute.length > 1 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 10,
+            top: 10,
+            zIndex: 20,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: "rgba(252,165,165,0.75)",
+            backgroundColor: "rgba(239,68,68,0.82)",
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+            Google suggested route
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

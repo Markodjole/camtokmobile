@@ -6,7 +6,7 @@ import MapView, {
   PROVIDER_GOOGLE,
   type Region,
 } from "react-native-maps";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import type { RoutePoint } from "@/types/live";
 
 /**
@@ -595,6 +595,27 @@ function LiveMapInner({
               borderColor: "rgba(255,255,255,0.9)",
             }}
           />
+        </View>
+      ) : null}
+      {destinationRoute && destinationRoute.length > 1 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 10,
+            top: 10,
+            zIndex: 10,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: "rgba(252,165,165,0.75)",
+            backgroundColor: "rgba(239,68,68,0.82)",
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+            Google suggested route
+          </Text>
         </View>
       ) : null}
     </View>
