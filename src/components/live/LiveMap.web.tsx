@@ -17,6 +17,8 @@ type DriverRouteOverlay = {
 type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
+  destination?: { lat: number; lng: number; label?: string } | null;
+  destinationRoute?: Array<{ lat: number; lng: number }> | null;
   zones?: Array<{
     id: string;
     name: string;
@@ -81,6 +83,8 @@ function isPointBehindVehicle(
 export function LiveMap({
   routePoints,
   driverRoute,
+  destination,
+  destinationRoute,
   zones = [],
   checkpoints = [],
   selectedZoneId = null,
@@ -100,6 +104,7 @@ export function LiveMap({
   const turnCircleRef = useRef<any>(null);
   const zonesLayerRef = useRef<any>(null);
   const checkpointsLayerRef = useRef<any>(null);
+  const destinationLayerRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const routePointsRef = useRef(routePoints);
@@ -164,6 +169,7 @@ export function LiveMap({
       turnCircleRef.current = null;
       zonesLayerRef.current = null;
       checkpointsLayerRef.current = null;
+      destinationLayerRef.current = null;
       markerRef.current = null;
       initializedRef.current = false;
     };
@@ -302,6 +308,42 @@ export function LiveMap({
       ).addTo(map);
     }
   }, [driverRoute, routePoints, showGuidanceLine]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const L = require("leaflet");
+    if (!destinationLayerRef.current) {
+      destinationLayerRef.current = L.layerGroup().addTo(map);
+    }
+    destinationLayerRef.current.clearLayers();
+
+    if (destinationRoute && destinationRoute.length > 1) {
+      const pts = destinationRoute.map((p) => [p.lat, p.lng]);
+      L.polyline(pts, {
+        color: "#000000",
+        weight: 9,
+        opacity: 0.26,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(destinationLayerRef.current);
+      L.polyline(pts, {
+        color: "#ef4444",
+        weight: 6,
+        opacity: 0.95,
+        lineCap: "round",
+        lineJoin: "round",
+      }).addTo(destinationLayerRef.current);
+    }
+    if (destination) {
+      L.marker([destination.lat, destination.lng], { title: destination.label || "Destination" })
+        .bindTooltip(destination.label || "Destination", {
+          direction: "top",
+          opacity: 0.95,
+        })
+        .addTo(destinationLayerRef.current);
+    }
+  }, [destination?.lat, destination?.lng, destination?.label, destinationRoute]);
 
   useEffect(() => {
     const map = mapRef.current;

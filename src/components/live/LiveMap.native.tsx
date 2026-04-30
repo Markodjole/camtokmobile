@@ -25,6 +25,8 @@ type DriverRouteOverlay = {
 type Props = {
   routePoints: RoutePoint[];
   driverRoute?: DriverRouteOverlay | null;
+  destination?: { lat: number; lng: number; label?: string } | null;
+  destinationRoute?: Array<{ lat: number; lng: number }> | null;
   zones?: Array<{
     id: string;
     name: string;
@@ -139,6 +141,8 @@ function isPointBehindVehicle(
 function LiveMapInner({
   routePoints,
   driverRoute,
+  destination,
+  destinationRoute,
   zones = [],
   checkpoints = [],
   selectedZoneId = null,
@@ -530,6 +534,35 @@ function LiveMapInner({
           />
         ) : null}
 
+        {destinationRoute && destinationRoute.length > 1 ? (
+          <>
+            <Polyline
+              coordinates={destinationRoute.map((p) => ({
+                latitude: p.lat,
+                longitude: p.lng,
+              }))}
+              strokeColor="rgba(0,0,0,0.28)"
+              strokeWidth={9}
+            />
+            <Polyline
+              coordinates={destinationRoute.map((p) => ({
+                latitude: p.lat,
+                longitude: p.lng,
+              }))}
+              strokeColor="rgba(239,68,68,0.94)"
+              strokeWidth={6}
+            />
+          </>
+        ) : null}
+
+        {destination ? (
+          <Marker
+            coordinate={{ latitude: destination.lat, longitude: destination.lng }}
+            pinColor="#ef4444"
+            title={destination.label ?? "Destination"}
+          />
+        ) : null}
+
         {smoothedLast && !followDriver ? (
           <Marker
             coordinate={{ latitude: smoothedLast.lat, longitude: smoothedLast.lng }}
@@ -592,6 +625,13 @@ export const LiveMap = memo(LiveMapInner, (prev, next) => {
     prev.driverRoute?.pin?.distanceMeters !== next.driverRoute?.pin?.distanceMeters ||
     prev.driverRoute?.approachLine?.length !==
       next.driverRoute?.approachLine?.length
+  )
+    return false;
+
+  if (
+    prev.destination?.lat !== next.destination?.lat ||
+    prev.destination?.lng !== next.destination?.lng ||
+    prev.destinationRoute?.length !== next.destinationRoute?.length
   )
     return false;
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import * as Location from "expo-location";
 import { Screen } from "@/components/ui/Screen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -47,6 +48,20 @@ export default function GoLiveControlScreen() {
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [mapResetKey, setMapResetKey] = useState(0);
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [destinationSuggestions, setDestinationSuggestions] = useState<
+    Array<{ placeId: string; primary: string; secondary: string | null }>
+  >([]);
+  const [destinationLoading, setDestinationLoading] = useState(false);
+  const [destination, setDestination] = useState<{
+    lat: number;
+    lng: number;
+    label: string;
+    placeId: string | null;
+  } | null>(null);
+  const [placeSessionToken] = useState(() =>
+    Math.random().toString(36).slice(2),
+  );
 
   const onTelemetryError = useCallback((msg: string) => setError(msg), []);
   const { routePoints, hasPermission } = useBroadcasterTelemetry({
@@ -87,6 +102,14 @@ export default function GoLiveControlScreen() {
           transportMode,
           statusText: statusText.trim() || undefined,
           intentLabel: intentLabel.trim() || undefined,
+          destination: destination
+            ? {
+                lat: destination.lat,
+                lng: destination.lng,
+                label: destination.label,
+                placeId: destination.placeId,
+              }
+            : undefined,
         },
       });
       if ("error" in res) {
@@ -99,6 +122,65 @@ export default function GoLiveControlScreen() {
       setError(e instanceof Error ? e.message : "Could not start session");
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function fetchDestinationSuggestions(text: string) {
+    const q = text.trim();
+    setDestinationQuery(text);
+    if (q.length < 2) {
+      setDestinationSuggestions([]);
+      return;
+    }
+    setDestinationLoading(true);
+    try {
+      let latLngQuery = "";
+      try {
+        const pos = await Location.getLastKnownPositionAsync();
+        if (pos) {
+          latLngQuery = `&lat=${pos.coords.latitude.toFixed(6)}&lng=${pos.coords.longitude.toFixed(6)}`;
+        }
+      } catch {
+        // best effort only
+      }
+      const res = await apiFetch<{
+        suggestions: Array<{
+          placeId: string;
+          primary: string;
+          secondary: string | null;
+        }>;
+      }>(
+        `/api/live/places/autocomplete?input=${encodeURIComponent(q)}&sessionToken=${placeSessionToken}${latLngQuery}`,
+        { anonymous: true },
+      );
+      setDestinationSuggestions(res.suggestions ?? []);
+    } catch {
+      setDestinationSuggestions([]);
+    } finally {
+      setDestinationLoading(false);
+    }
+  }
+
+  async function pickSuggestion(placeId: string) {
+    setDestinationLoading(true);
+    try {
+      const res = await apiFetch<{
+        destination: {
+          lat: number;
+          lng: number;
+          label: string;
+          placeId: string | null;
+        } | null;
+      }>(
+        `/api/live/places/details?placeId=${encodeURIComponent(placeId)}&sessionToken=${placeSessionToken}`,
+        { anonymous: true },
+      );
+      if (!res.destination) return;
+      setDestination(res.destination);
+      setDestinationQuery(res.destination.label);
+      setDestinationSuggestions([]);
+    } finally {
+      setDestinationLoading(false);
     }
   }
 
@@ -183,15 +265,83 @@ export default function GoLiveControlScreen() {
               value={intentLabel}
               onChangeText={setIntentLabel}
             />
+            <Input
+              label="Destination"
+              placeholder="Address, place, or part of city"
+              value={destinationQuery}
+              onChangeText={(t) => {
+                setDestination(null);
+                void fetchDestinationSuggestions(t);
+              }}
+            />
+            {destinationLoading ? (
+              <Text className="text-xs text-muted-foreground">Searching places…</Text>
+            ) : null}
+            {destinationSuggestions.length > 0 ? (
+              <View
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.12)",
+                  backgroundColor: "rgba(0,0,0,0.35)",
+                  overflow: "hidden",
+                }}
+              >
+                {destinationSuggestions.map((s, i) => (
+                  <Pressable
+                    key={s.placeId}
+                    onPress={() => void pickSuggestion(s.placeId)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderBottomWidth: i < destinationSuggestions.length - 1 ? 1 : 0,
+                      borderBottomColor: "rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                      {s.primary}
+                    </Text>
+                    {s.secondary ? (
+                      <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11 }}>
+                        {s.secondary}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {destination ? (
+              <View
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "rgba(248,113,113,0.5)",
+                  backgroundColor: "rgba(239,68,68,0.15)",
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text style={{ color: "#fee2e2", fontSize: 12, fontWeight: "700" }}>
+                  📍 {destination.label}
+                </Text>
+              </View>
+            ) : null}
 
             {error ? (
               <Text className="text-xs text-accent">{error}</Text>
             ) : null}
 
             <Button
-              label={starting ? "Starting…" : "Start broadcasting"}
+              label={
+                starting
+                  ? "Starting…"
+                  : destination
+                    ? "Start broadcasting"
+                    : "Pick destination first"
+              }
               onPress={goLive}
               loading={starting}
+              disabled={!destination || starting}
               fullWidth
             />
           </View>

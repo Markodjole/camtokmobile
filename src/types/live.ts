@@ -83,6 +83,12 @@ export type LiveFeedRow = {
   sessionStartedAt: string;
   lastHeartbeatAt: string | null;
   routePoints: RoutePoint[];
+  destination: {
+    lat: number;
+    lng: number;
+    label: string;
+    placeId: string | null;
+  } | null;
 };
 
 /**
@@ -142,6 +148,27 @@ export type StartLiveSessionInput = {
   transportMode: TransportMode;
   statusText?: string;
   intentLabel?: string;
+  destination?: {
+    lat: number;
+    lng: number;
+    label: string;
+    placeId?: string | null;
+  } | null;
+};
+
+export type DestinationRoute = {
+  destination: {
+    lat: number;
+    lng: number;
+    label: string;
+    placeId: string | null;
+  } | null;
+  route: {
+    polyline: Array<{ lat: number; lng: number }>;
+    distanceMeters: number;
+    durationSec: number;
+  } | null;
+  distanceToDestinationMeters?: number;
 };
 
 export type StartLiveSessionResult =

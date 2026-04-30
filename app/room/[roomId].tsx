@@ -16,6 +16,7 @@ import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
 import { useCountdown } from "@/hooks/useCountdown";
 import {
+  useDestinationRoute,
   useDriverRoute,
   useCityGridCells,
   useLiveRoom,
@@ -54,6 +55,7 @@ export default function RoomScreen() {
   const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
   const routePoints = useRoutePoints(effectiveSessionId);
   const driverRoute = useDriverRoute(roomId ?? null);
+  const destinationRoute = useDestinationRoute(roomId ?? null);
   const placeBet = usePlaceBet(roomId ?? null);
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastStream = useLiveBroadcastStore((s) => s.localStream);
@@ -274,7 +276,8 @@ export default function RoomScreen() {
     void room.refetch();
     void routePoints.refetch();
     void driverRoute.refetch();
-  }, [isOwnLiveSession, room, routePoints, driverRoute]);
+    void destinationRoute.refetch();
+  }, [isOwnLiveSession, room, routePoints, driverRoute, destinationRoute]);
 
   async function handleBet(optionId: string) {
     if (!currentMarket || !roomId) return;
@@ -359,6 +362,8 @@ export default function RoomScreen() {
                 }
               : null
           }
+          destination={data.destination}
+          destinationRoute={destinationRoute.data?.route?.polyline ?? null}
           zones={gridZones}
           checkpoints={[]}
           selectedZoneId={selectedGridCellId}
@@ -445,6 +450,31 @@ export default function RoomScreen() {
           </View>
         ) : null}
       </SafeAreaView>
+
+      {data.destination ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 12,
+            right: 12,
+            top: insets.top + 72,
+            zIndex: 39,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: "rgba(248,113,113,0.6)",
+            backgroundColor: "rgba(239,68,68,0.25)",
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+          }}
+        >
+          <Text
+            style={{ color: "#fee2e2", fontSize: 12, fontWeight: "700" }}
+            numberOfLines={1}
+          >
+            📍 Destination: {data.destination.label}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Map controls */}
       {mapExpanded && !isDriverMode ? (

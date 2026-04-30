@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type {
   CityGridSpec,
+  DestinationRoute,
   DriverRouteInstruction,
   GridCell,
   LiveFeedRow,
@@ -54,6 +55,21 @@ export function useDriverRoute(roomId: string | null) {
       return res.instruction;
     },
     refetchInterval: 450,
+    staleTime: 1_000,
+  });
+}
+
+export function useDestinationRoute(roomId: string | null) {
+  return useQuery({
+    queryKey: ["destination-route", roomId],
+    enabled: !!roomId,
+    queryFn: async ({ signal }) => {
+      return apiFetch<DestinationRoute>(
+        `/api/live/rooms/${roomId}/destination-route`,
+        { signal, anonymous: true },
+      );
+    },
+    refetchInterval: 4000,
     staleTime: 1_000,
   });
 }
