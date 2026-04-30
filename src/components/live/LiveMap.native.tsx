@@ -14,8 +14,8 @@ import type { RoutePoint } from "@/types/live";
  *   - `pin`: the next blue dot (the closest of the AI-decided 3 pins
  *     ahead). Stays visible from the moment it appears until the
  *     vehicle physically passes it.
- *   - `approachLine`: a pre-trimmed 50 m road segment ending at the
- *     pin. We render it as-is (no client-side trimming).
+ *   - `approachLine`: turn guidance around the pin
+ *     (~50 m before + up to ~20 m after). We render it as-is.
  */
 type DriverRouteOverlay = {
   pin: { lat: number; lng: number; distanceMeters?: number } | null;

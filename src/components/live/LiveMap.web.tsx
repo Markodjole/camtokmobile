@@ -6,7 +6,7 @@ import type { RoutePoint } from "@/types/live";
 
 /**
  * Mirrors the new API shape: a single visible pin (`pin`) and a
- * pre-trimmed 50 m approach polyline (`approachLine`). The backend
+ * turn guidance polyline (`approachLine`, ~50 m before + up to ~20 m after). The backend
  * removes the pin from the response once the vehicle passes it.
  */
 type DriverRouteOverlay = {

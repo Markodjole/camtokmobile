@@ -95,8 +95,8 @@ export type LiveFeedRow = {
  * Driver-route guidance from the backend. The backend internally tracks
  * a queue of up to 3 crossroad pins ahead of the vehicle (200–400 m of
  * road distance apart), but only `pins[0]` — the next decision point —
- * is shown to the user. The blue line is a pre-trimmed 50 m segment
- * ending at `pins[0]`.
+ * is shown to the user. The blue line is a turn guidance segment around
+ * `pins[0]` (~50 m before + up to ~20 m after).
  */
 export type DriverRoutePin = {
   /** Stable id (OSM node id) — useful for dedup. */
