@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
@@ -10,7 +10,6 @@ import { LiveMap } from "@/components/live/LiveMap";
 import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
 import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { apiFetch } from "@/lib/api";
-import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveMapStale } from "@/hooks/useLiveMapStale";
@@ -39,11 +38,17 @@ export default function GoLiveControlScreen() {
   const { characterId } = useLocalSearchParams<{ characterId: string }>();
   const router = useRouter();
 
-  const [transportMode, setTransportMode] = useState<TransportMode>("walking");
+  const storeTransportMode = useLiveBroadcastStore((s) => s.transportMode as TransportMode);
+  const setStoreTransportMode = useLiveBroadcastStore((s) => s.setTransportMode);
+  const sessionId = useLiveBroadcastStore((s) => s.sessionId);
+  const roomId = useLiveBroadcastStore((s) => s.roomId);
+  const setSessionId = useLiveBroadcastStore((s) => s.setSession);
+  const setRoomId = useLiveBroadcastStore((s) => s.setRoomId);
+  const routePoints = useLiveBroadcastStore((s) => s.routePoints);
+  const hasPermission = useLiveBroadcastStore((s) => s.hasLocationPermission);
+  const [transportMode, setTransportMode] = useState<TransportMode>(storeTransportMode);
   const [statusText, setStatusText] = useState("");
   const [intentLabel, setIntentLabel] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [roomId, setRoomId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -63,13 +68,11 @@ export default function GoLiveControlScreen() {
     Math.random().toString(36).slice(2),
   );
 
-  const onTelemetryError = useCallback((msg: string) => setError(msg), []);
-  const { routePoints, hasPermission } = useBroadcasterTelemetry({
-    sessionId,
-    transportMode,
-    onError: onTelemetryError,
-  });
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+
+  useEffect(() => {
+    setStoreTransportMode(transportMode);
+  }, [transportMode, setStoreTransportMode]);
 
   // Pre-fetch map tiles for current GPS location as soon as we have a point
   const lastPoint = routePoints[routePoints.length - 1];
@@ -117,6 +120,7 @@ export default function GoLiveControlScreen() {
       } else {
         setSessionId(res.sessionId);
         setRoomId(res.roomId);
+        setStoreTransportMode(transportMode);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start session");
@@ -192,8 +196,6 @@ export default function GoLiveControlScreen() {
         method: "POST",
         body: {},
       }).catch(() => undefined);
-      setSessionId(null);
-      setRoomId(null);
       clearBroadcastStore();
       Alert.alert("Ended", "Live session ended.");
     } finally {

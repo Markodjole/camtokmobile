@@ -7,6 +7,9 @@ import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { View } from "react-native";
 import { AppBottomBar, AppTopBar } from "@/components/navigation/AppChrome";
+import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
+import type { TransportMode } from "@/types/live";
 
 export default function RootLayout() {
   return (
@@ -46,6 +49,7 @@ function AuthGate() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <GlobalLiveTelemetry />
       {!isFullscreen && <AppTopBar />}
       <View style={{ flex: 1 }}>
         <Stack
@@ -70,4 +74,16 @@ function AuthGate() {
       {!isFullscreen && <AppBottomBar />}
     </View>
   );
+}
+
+function GlobalLiveTelemetry() {
+  const sessionId = useLiveBroadcastStore((s) => s.sessionId);
+  const transportMode = useLiveBroadcastStore((s) => s.transportMode as TransportMode);
+  useBroadcasterTelemetry({
+    sessionId,
+    transportMode,
+    active: true,
+    onError: (message) => console.warn("[mobile-live-telemetry]", message),
+  });
+  return null;
 }

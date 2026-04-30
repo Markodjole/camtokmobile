@@ -30,10 +30,12 @@ export function useBroadcasterTelemetry(params: {
   sessionId: string | null;
   transportMode: TransportMode;
   onError?: (message: string) => void;
+  active?: boolean;
 }) {
-  const { sessionId, transportMode, onError } = params;
+  const { sessionId, transportMode, onError, active = true } = params;
   const setSession = useLiveBroadcastStore((s) => s.setSession);
   const setStoreRoutePoints = useLiveBroadcastStore((s) => s.setRoutePoints);
+  const setStorePermission = useLiveBroadcastStore((s) => s.setHasLocationPermission);
   const clearStore = useLiveBroadcastStore((s) => s.clear);
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -54,7 +56,7 @@ export function useBroadcasterTelemetry(params: {
   }, [routePoints, setStoreRoutePoints]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!active || !sessionId) return;
 
     let cancelled = false;
 
@@ -63,6 +65,7 @@ export function useBroadcasterTelemetry(params: {
       if (cancelled) return;
       const granted = status === "granted";
       setHasPermission(granted);
+      setStorePermission(granted);
       if (!granted) {
         onError?.("Location permission denied");
         return;
@@ -166,11 +169,9 @@ export function useBroadcasterTelemetry(params: {
       clearInterval(heartbeat);
       watcherRef.current?.remove();
       watcherRef.current = null;
-      if (!sessionId) {
-        clearStore();
-      }
+      if (!sessionId) clearStore();
     };
-  }, [sessionId, transportMode, onError, clearStore]);
+  }, [active, sessionId, transportMode, onError, clearStore, setStorePermission]);
 
   return { routePoints, hasPermission };
 }

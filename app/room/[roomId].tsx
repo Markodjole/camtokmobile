@@ -375,7 +375,9 @@ export default function RoomScreen() {
               : null
           }
           destination={data.destination}
-          destinationRoute={destinationRoute.data?.route?.polyline ?? null}
+          destinationRoute={
+            isDriverMode ? null : (destinationRoute.data?.route?.polyline ?? null)
+          }
           zones={gridZones}
           checkpoints={[]}
           selectedZoneId={selectedGridCellId}
