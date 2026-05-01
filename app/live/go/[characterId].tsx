@@ -47,8 +47,6 @@ export default function GoLiveControlScreen() {
   const routePoints = useLiveBroadcastStore((s) => s.routePoints);
   const hasPermission = useLiveBroadcastStore((s) => s.hasLocationPermission);
   const [transportMode, setTransportMode] = useState<TransportMode>(storeTransportMode);
-  const [statusText, setStatusText] = useState("");
-  const [intentLabel, setIntentLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -103,8 +101,6 @@ export default function GoLiveControlScreen() {
         body: {
           characterId,
           transportMode,
-          statusText: statusText.trim() || undefined,
-          intentLabel: intentLabel.trim() || undefined,
           destination: destination
             ? {
                 lat: destination.lat,
@@ -230,7 +226,7 @@ export default function GoLiveControlScreen() {
             <Card>
               <CardTitle>Transport mode</CardTitle>
               <CardDescription>
-                Car rooms have tighter safety limits per platform policy.
+                Pick mode and destination. No extra setup.
               </CardDescription>
               <View className="mt-3 flex-row flex-wrap gap-2">
                 {MODES.map((m) => {
@@ -254,28 +250,27 @@ export default function GoLiveControlScreen() {
                 })}
               </View>
             </Card>
-
-            <Input
-              label="Status"
-              placeholder="What are you doing right now?"
-              value={statusText}
-              onChangeText={setStatusText}
-            />
-            <Input
-              label="Intent (optional)"
-              placeholder="e.g. Coffee run"
-              value={intentLabel}
-              onChangeText={setIntentLabel}
-            />
-            <Input
-              label="Destination"
-              placeholder="Address, place, or part of city"
-              value={destinationQuery}
-              onChangeText={(t) => {
-                setDestination(null);
-                void fetchDestinationSuggestions(t);
-              }}
-            />
+            <View style={{ gap: 6 }}>
+              <Text className="text-sm font-medium text-white">Destination</Text>
+              <View
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.14)",
+                  backgroundColor: "rgba(0,0,0,0.35)",
+                  overflow: "hidden",
+                }}
+              >
+                <Input
+                  placeholder="Search destination"
+                  value={destinationQuery}
+                  onChangeText={(t) => {
+                    setDestination(null);
+                    void fetchDestinationSuggestions(t);
+                  }}
+                />
+              </View>
+            </View>
             {destinationLoading ? (
               <Text className="text-xs text-muted-foreground">Searching places…</Text>
             ) : null}

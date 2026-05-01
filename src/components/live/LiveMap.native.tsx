@@ -8,6 +8,7 @@ import MapView, {
 } from "react-native-maps";
 import { Text, View } from "react-native";
 import type { RoutePoint } from "@/types/live";
+import { metersBetween } from "@/lib/geo";
 
 /**
  * Driver-route overlay passed to the map. Mirrors the new API shape:
@@ -27,6 +28,8 @@ type Props = {
   driverRoute?: DriverRouteOverlay | null;
   destination?: { lat: number; lng: number; label?: string } | null;
   destinationRoute?: Array<{ lat: number; lng: number }> | null;
+  /** Labels from driver routing persona (viewers see these on the map). */
+  driverRouteBadges?: string[] | null;
   zones?: Array<{
     id: string;
     name: string;
@@ -94,6 +97,14 @@ const CAMERA_MAX_TURN_RATE_DPS = 90;
 const POSE_STATE_MIN_INTERVAL_MS = 55;
 const FORWARD_EPS = 0;
 const MOVEMENT_EPS2 = 1e-10;
+const TURN_PRECISE_PRE_M = 50;
+const TURN_PRECISE_POST_M = 20;
+const BASE_MAX_PROJECT_MS = 1200;
+const BASE_COAST_MAX_MS = 4500;
+const PRECISE_MAX_PROJECT_MS = 220;
+const PRECISE_COAST_MAX_MS = 500;
+const SPRING_STIFFNESS_BASE = 13;
+const SPRING_STIFFNESS_PRECISE = 34;
 
 function shortestAngle(prev: number, next: number): number {
   let d = ((next - prev + 540) % 360) - 180;
@@ -143,6 +154,7 @@ function LiveMapInner({
   driverRoute,
   destination,
   destinationRoute,
+  driverRouteBadges = null,
   zones = [],
   checkpoints = [],
   selectedZoneId = null,
@@ -188,6 +200,9 @@ function LiveMapInner({
   const hasSmoothedPoseRef = useRef(false);
   const routePointsRef = useRef(routePoints);
   routePointsRef.current = routePoints;
+  const driverRouteRef = useRef(driverRoute ?? null);
+  driverRouteRef.current = driverRoute ?? null;
+  const turnPinRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const last = routePoints[routePoints.length - 1];
   const [smoothedLast, setSmoothedLast] = useState<RoutePoint | null>(
@@ -217,6 +232,7 @@ function LiveMapInner({
     lastCameraTsRef.current = 0;
     lastPoseStateTsRef.current = 0;
     hasSmoothedPoseRef.current = false;
+    turnPinRef.current = null;
     setSmoothedLast(null);
     if (!pt) return;
     const now = Date.now();
@@ -317,9 +333,42 @@ function LiveMapInner({
       const raw = rawRef.current;
 
       if (pose && raw) {
+        const pin = driverRouteRef.current?.pin ?? null;
+        const viewerMode = !showGuidanceLine;
+        if (pin && pin.distanceMeters != null && pin.distanceMeters <= TURN_PRECISE_PRE_M) {
+          turnPinRef.current = { lat: pin.lat, lng: pin.lng };
+        }
+        let viewerPreciseTurnWindow = false;
+        if (viewerMode) {
+          if (pin && pin.distanceMeters != null && pin.distanceMeters <= TURN_PRECISE_PRE_M) {
+            viewerPreciseTurnWindow = true;
+          } else if (turnPinRef.current) {
+            const postTurnDist = metersBetween(
+              { lat: pose.lat, lng: pose.lng },
+              turnPinRef.current,
+            );
+            if (postTurnDist <= TURN_PRECISE_POST_M) {
+              viewerPreciseTurnWindow = true;
+            } else {
+              turnPinRef.current = null;
+            }
+          }
+        }
+
+        const springStiffness = viewerPreciseTurnWindow
+          ? SPRING_STIFFNESS_PRECISE
+          : SPRING_STIFFNESS_BASE;
+        const springDamping = 2 * Math.sqrt(springStiffness);
+        const projectMs = viewerPreciseTurnWindow
+          ? PRECISE_MAX_PROJECT_MS
+          : BASE_MAX_PROJECT_MS;
+        const coastMs = viewerPreciseTurnWindow
+          ? PRECISE_COAST_MAX_MS
+          : BASE_COAST_MAX_MS;
+
         // Project the GPS forward by the smoothed velocity, but clamp how far.
         const sinceRawSec = (now - raw.ts) / 1000;
-        const projectedWindowSec = Math.min(MAX_PROJECT_MS / 1000, sinceRawSec);
+        const projectedWindowSec = Math.min(projectMs / 1000, sinceRawSec);
         let projectedLat = raw.lat + velRef.current.vLat * projectedWindowSec;
         let projectedLng = raw.lng + velRef.current.vLng * projectedWindowSec;
 
@@ -327,7 +376,7 @@ function LiveMapInner({
         // so missed packets don't look like a hard freeze.
         if (sinceRawSec > projectedWindowSec) {
           const extraSec = Math.min(
-            COAST_MAX_MS / 1000,
+            coastMs / 1000,
             sinceRawSec - projectedWindowSec,
           );
           const decay = Math.pow(COAST_DECAY_PER_SEC, extraSec);
@@ -339,11 +388,11 @@ function LiveMapInner({
 
         // Spring-damper integration toward the projected target.
         const aLat =
-          SPRING_STIFFNESS * (projectedLat - pose.lat) -
-          SPRING_DAMPING * pose.vLat;
+          springStiffness * (projectedLat - pose.lat) -
+          springDamping * pose.vLat;
         const aLng =
-          SPRING_STIFFNESS * (projectedLng - pose.lng) -
-          SPRING_DAMPING * pose.vLng;
+          springStiffness * (projectedLng - pose.lng) -
+          springDamping * pose.vLng;
         const newVLat = pose.vLat + aLat * dtSec;
         const newVLng = pose.vLng + aLng * dtSec;
         const newLat = pose.lat + newVLat * dtSec;
@@ -384,10 +433,22 @@ function LiveMapInner({
           // Smooth map rotation separately from marker heading:
           // 1) Blend toward desired heading
           // 2) Clamp turn speed (deg/sec)
+          // Viewers (`showGuidanceLine` false) need faster alignment for betting UX.
+          const viewerBettingFollow = !showGuidanceLine;
+          const headingBlend = viewerBettingFollow
+            ? viewerPreciseTurnWindow
+              ? 0.72
+              : 0.52
+            : CAMERA_HEADING_BLEND;
+          const maxTurnDps = viewerBettingFollow
+            ? viewerPreciseTurnWindow
+              ? 420
+              : 280
+            : CAMERA_MAX_TURN_RATE_DPS;
           const camCurrent = cameraHeadingRef.current;
           const camTarget = shortestAngle(camCurrent, newHeading);
-          const camBlended = camCurrent + (camTarget - camCurrent) * CAMERA_HEADING_BLEND;
-          const maxStep = CAMERA_MAX_TURN_RATE_DPS * dtSec;
+          const camBlended = camCurrent + (camTarget - camCurrent) * headingBlend;
+          const maxStep = maxTurnDps * dtSec;
           const camDelta = ((camBlended - camCurrent + 540) % 360) - 180;
           const camStep =
             Math.abs(camDelta) > maxStep
@@ -416,7 +477,7 @@ function LiveMapInner({
       rafRef.current = null;
       lastFrameTsRef.current = null;
     };
-  }, [followDriver, followZoom]);
+  }, [followDriver, followZoom, showGuidanceLine]);
 
   // Cap to last 40 points — avoids ever-growing polyline re-renders
   const historyCoords = useMemo(
@@ -597,33 +658,69 @@ function LiveMapInner({
           />
         </View>
       ) : null}
-      {destinationRoute && destinationRoute.length > 1 ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 10,
-            top: 10,
-            zIndex: 10,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: "rgba(252,165,165,0.75)",
-            backgroundColor: "rgba(239,68,68,0.82)",
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-            Google suggested route
-          </Text>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 8,
+          right: 8,
+          top: 8,
+          zIndex: 11,
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          gap: 6,
+        }}
+      >
+        {destinationRoute && destinationRoute.length > 1 ? (
+          <View
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: "rgba(252,165,165,0.75)",
+              backgroundColor: "rgba(239,68,68,0.82)",
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+              Google suggested route
+            </Text>
+          </View>
+        ) : (
+          <View />
+        )}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", flex: 1, gap: 4, maxWidth: "72%" }}>
+          {(driverRouteBadges ?? []).map((label) => (
+            <View
+              key={label}
+              style={{
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: "rgba(125,211,252,0.55)",
+                backgroundColor: "rgba(12,74,110,0.9)",
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+              }}
+            >
+              <Text style={{ color: "#e0f2fe", fontSize: 9, fontWeight: "700" }}>
+                {label}
+              </Text>
+            </View>
+          ))}
         </View>
-      ) : null}
+      </View>
     </View>
   );
 }
 
 export const LiveMap = memo(LiveMapInner, (prev, next) => {
   if (prev.showGuidanceLine !== next.showGuidanceLine) return false;
+  if (
+    (prev.driverRouteBadges ?? []).join("\u0001") !==
+    (next.driverRouteBadges ?? []).join("\u0001")
+  )
+    return false;
   if ((prev.zones?.length ?? 0) !== (next.zones?.length ?? 0)) return false;
   if ((prev.checkpoints?.length ?? 0) !== (next.checkpoints?.length ?? 0)) return false;
   if (prev.selectedZoneId !== next.selectedZoneId) return false;

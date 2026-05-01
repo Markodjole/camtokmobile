@@ -89,6 +89,13 @@ export type LiveFeedRow = {
     label: string;
     placeId: string | null;
   } | null;
+  /** Character routing persona — same JSON as web `characters.driving_route_style`. */
+  drivingRouteStyle?: {
+    version?: number;
+    comfortVsSpeed?: string;
+    pathStyle?: string;
+    ecoConscious?: boolean;
+  } | null;
 };
 
 /**

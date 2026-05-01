@@ -1,6 +1,7 @@
 import "../global.css";
 import { Redirect, Stack, usePathname, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useKeepAwake } from "expo-keep-awake";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
@@ -27,6 +28,7 @@ export default function RootLayout() {
 }
 
 function AuthGate() {
+  useKeepAwake();
   const { session, isLoading } = useAuth();
   const segments = useSegments();
   const pathname = usePathname();

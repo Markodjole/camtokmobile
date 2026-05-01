@@ -4091,6 +4091,11 @@ expo-json-utils@~0.15.0:
   resolved "https://registry.npmmirror.com/expo-json-utils/-/expo-json-utils-0.15.0.tgz#6723574814b9e6b0a90e4e23662be76123ab6ae9"
   integrity sha512-duRT6oGl80IDzH2LD2yEFWNwGIC2WkozsB6HF3cDYNoNNdUvFk6uN3YiwsTsqVM/D0z6LEAQ01/SlYvN+Fw0JQ==
 
+expo-keep-awake@^55.0.7:
+  version "55.0.7"
+  resolved "https://registry.npmmirror.com/expo-keep-awake/-/expo-keep-awake-55.0.7.tgz#7bdddec590a6f15937abba4b17bb25e1b618aba3"
+  integrity sha512-QBWOEu8FkPBGYc0h0rsCkSTMJNBEKgzVsmLuQpO7V79V9sPR052k3Iiu/G8Kzmny2enyHYYed8RY+CUsip/SeQ==
+
 expo-keep-awake@~15.0.8:
   version "15.0.8"
   resolved "https://registry.npmmirror.com/expo-keep-awake/-/expo-keep-awake-15.0.8.tgz#911c5effeba9baff2ccde79ef0ff5bf856215f8d"

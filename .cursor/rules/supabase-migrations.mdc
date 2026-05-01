@@ -1,0 +1,18 @@
+---
+description: After changing Supabase migration SQL (camtok backend), apply locally and push remote—run CLI yourself.
+alwaysApply: true
+---
+
+# Supabase migrations
+
+This Expo app does **not** ship `supabase/migrations/`; the database schema lives in the **camtok** repo (sibling directory `../camtok`).
+
+When **you or the task** adds or modifies migration SQL under **`camtok/supabase/migrations/`**, run these from **`camtok` repo root** (not camtokmobile):
+
+1. **Local:** `pnpm exec supabase migration up --local` — if Docker stack is stopped, run `pnpm exec supabase start` first.
+2. **Remote:** `pnpm exec supabase db push` (requires CLI linked project + auth).
+3. **Verify:** `pnpm exec supabase migration list` — latest row must match on Local **and** Remote.
+
+Execute these commands yourself; don’t hand off to the user unless the environment blocks CLI/network/auth. Report failures with the command output.
+
+If this repo ever gains its own `supabase/migrations/` folder, run the same commands from **this** repo root instead.

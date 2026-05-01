@@ -29,6 +29,10 @@ import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { RoutePoint } from "@/types/live";
 import { BET_LOCK_DISTANCE_M, metersBetween } from "@/lib/geo";
+import {
+  drivingRouteStyleBadges,
+  normalizeDrivingRouteStyle,
+} from "@/lib/drivingRouteStyle";
 
 /**
  * Mobile twin of `apps/web/src/components/live/LiveRoomScreen.tsx`.
@@ -234,6 +238,20 @@ export default function RoomScreen() {
     [isDriverMode, showZones, cityGridCells],
   );
 
+  const driverRouteBadges = useMemo(() => {
+    const d = room.data;
+    if (!d) return [];
+    return drivingRouteStyleBadges(
+      normalizeDrivingRouteStyle(d.drivingRouteStyle),
+      d.transportMode,
+    );
+  }, [
+    room.data?.transportMode,
+    room.data?.drivingRouteStyle?.comfortVsSpeed,
+    room.data?.drivingRouteStyle?.pathStyle,
+    room.data?.drivingRouteStyle?.ecoConscious,
+  ]);
+
   const mapStale = useLiveMapStale({
     lat: lastResolved?.lat,
     lng: lastResolved?.lng,
@@ -375,7 +393,10 @@ export default function RoomScreen() {
               : null
           }
           destination={data.destination}
-          destinationRoute={destinationRoute.data?.route?.polyline ?? null}
+          destinationRoute={
+            isDriverMode ? null : (destinationRoute.data?.route?.polyline ?? null)
+          }
+          driverRouteBadges={driverRouteBadges}
           zones={gridZones}
           checkpoints={[]}
           selectedZoneId={selectedGridCellId}
