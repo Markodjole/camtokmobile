@@ -24,6 +24,7 @@ import {
   useRoutePoints,
 } from "@/hooks/useLiveRoom";
 import { blurOnWeb } from "@/lib/blurOnWeb";
+import { apiFetch } from "@/lib/api";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
@@ -64,6 +65,7 @@ export default function RoomScreen() {
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastStream = useLiveBroadcastStore((s) => s.localStream);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
+  const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
 
   // Pre-fetch map tiles for the driver's current location the moment we know it
   const firstPoint = room.data?.routePoints?.[0] ?? routePoints.data?.[0];
@@ -76,6 +78,7 @@ export default function RoomScreen() {
   const [showZones, setShowZones] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
+  const [endingDriverSession, setEndingDriverSession] = useState(false);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
   const [mapResetKey, setMapResetKey] = useState(0);
   const isOwnLiveSession =
@@ -313,6 +316,21 @@ export default function RoomScreen() {
       const msg = e instanceof Error ? e.message : "Bet failed";
       setBetError(msg);
       Alert.alert("Bet failed", msg);
+    }
+  }
+
+  async function handleEndDriverSession() {
+    if (!effectiveSessionId || endingDriverSession) return;
+    setEndingDriverSession(true);
+    try {
+      await apiFetch(`/api/live/sessions/${effectiveSessionId}/end`, {
+        method: "POST",
+        body: {},
+      }).catch(() => undefined);
+      clearBroadcastStore();
+      router.replace("/(tabs)/live");
+    } finally {
+      setEndingDriverSession(false);
     }
   }
 
@@ -629,6 +647,8 @@ export default function RoomScreen() {
           <DriverStatusBar
             routePoints={resolvedRoutePoints}
             sessionId={effectiveSessionId}
+            onEndSession={handleEndDriverSession}
+            endingSession={endingDriverSession}
           />
         ) : currentMarket?.marketType === "city_grid" ? (
           <GridBetBar
@@ -743,9 +763,13 @@ function GridBetBar({
 function DriverStatusBar({
   routePoints,
   sessionId,
+  onEndSession,
+  endingSession,
 }: {
   routePoints: import("@/types/live").RoutePoint[];
   sessionId: string | null;
+  onEndSession: () => void;
+  endingSession: boolean;
 }) {
   const last = routePoints[routePoints.length - 1];
   const speedKmh = last?.speedMps != null ? Math.round(last.speedMps * 3.6) : null;
@@ -809,21 +833,34 @@ function DriverStatusBar({
         ) : null}
       </View>
 
-      {/* Driving indicator */}
-      <View
+      <Pressable
+        onPress={blurOnWeb(onEndSession)}
+        disabled={endingSession}
         style={{
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          backgroundColor: "rgba(16,185,129,0.2)",
+          borderRadius: 12,
+          backgroundColor: endingSession
+            ? "rgba(255,255,255,0.12)"
+            : "rgba(239,68,68,0.28)",
           borderWidth: 1,
-          borderColor: "rgba(16,185,129,0.5)",
+          borderColor: endingSession
+            ? "rgba(255,255,255,0.22)"
+            : "rgba(248,113,113,0.6)",
           alignItems: "center",
           justifyContent: "center",
+          paddingHorizontal: 12,
+          paddingVertical: 8,
         }}
       >
-        <Text style={{ fontSize: 18 }}>🚗</Text>
-      </View>
+        <Text
+          style={{
+            color: endingSession ? "rgba(255,255,255,0.65)" : "#fee2e2",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          {endingSession ? "Ending..." : "End session"}
+        </Text>
+      </Pressable>
     </View>
   );
 }

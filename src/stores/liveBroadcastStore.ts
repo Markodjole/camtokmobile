@@ -17,7 +17,9 @@ type LiveBroadcastState = {
   setTransportMode: (transportMode: string) => void;
   setHasLocationPermission: (value: boolean | null) => void;
   setLocalStream: (stream: LocalMediaStream | null) => void;
-  setRoutePoints: (points: RoutePoint[]) => void;
+  setRoutePoints: (
+    points: RoutePoint[] | ((prev: RoutePoint[]) => RoutePoint[]),
+  ) => void;
   clear: () => void;
 };
 
@@ -33,7 +35,13 @@ export const useLiveBroadcastStore = create<LiveBroadcastState>((set) => ({
   setTransportMode: (transportMode) => set({ transportMode }),
   setHasLocationPermission: (hasLocationPermission) => set({ hasLocationPermission }),
   setLocalStream: (localStream) => set({ localStream }),
-  setRoutePoints: (routePoints) => set({ routePoints }),
+  setRoutePoints: (routePoints) =>
+    set((state) => ({
+      routePoints:
+        typeof routePoints === "function"
+          ? routePoints(state.routePoints)
+          : routePoints,
+    })),
   clear: () =>
     set({
       sessionId: null,

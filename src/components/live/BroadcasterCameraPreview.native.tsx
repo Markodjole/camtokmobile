@@ -45,7 +45,7 @@ type Props = {
  * - Expo Go fallback: expo-camera for local preview only (video is not
  *   streamed to viewers, but broadcaster can still go live with GPS/heartbeat).
  */
-export function BroadcasterCameraPreview({ liveSessionId, facing = "front", style }: Props) {
+export function BroadcasterCameraPreview({ liveSessionId, facing = "back", style }: Props) {
   // ── WebRTC path (dev client) ───────────────────────────────────────────
   if (rtc) {
     return (

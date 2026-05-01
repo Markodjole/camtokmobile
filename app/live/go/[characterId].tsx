@@ -355,7 +355,7 @@ export default function GoLiveControlScreen() {
             >
               <BroadcasterCameraPreview
                 liveSessionId={sessionId}
-                facing="front"
+                facing="back"
               />
             </View>
 

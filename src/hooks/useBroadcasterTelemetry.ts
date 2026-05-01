@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as Location from "expo-location";
 import { apiFetch } from "@/lib/api";
 import type { RoutePoint, TransportMode } from "@/types/live";
@@ -37,23 +37,21 @@ export function useBroadcasterTelemetry(params: {
   const setStoreRoutePoints = useLiveBroadcastStore((s) => s.setRoutePoints);
   const setStorePermission = useLiveBroadcastStore((s) => s.setHasLocationPermission);
   const clearStore = useLiveBroadcastStore((s) => s.clear);
-  const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const pendingRef = useRef<TelemetryPoint[]>([]);
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     setSession(sessionId ?? null);
     if (!sessionId) {
       setStoreRoutePoints([]);
-      setRoutePoints([]);
-      setHasPermission(null);
+      setStorePermission(null);
     }
-  }, [sessionId, setSession, setStoreRoutePoints]);
-
-  useEffect(() => {
-    setStoreRoutePoints(routePoints);
-  }, [routePoints, setStoreRoutePoints]);
+  }, [sessionId, setSession, setStoreRoutePoints, setStorePermission]);
 
   useEffect(() => {
     if (!active || !sessionId) return;
@@ -64,10 +62,9 @@ export function useBroadcasterTelemetry(params: {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (cancelled) return;
       const granted = status === "granted";
-      setHasPermission(granted);
       setStorePermission(granted);
       if (!granted) {
-        onError?.("Location permission denied");
+        onErrorRef.current?.("Location permission denied");
         return;
       }
       // Seed map immediately so the broadcaster sees current location right away.
@@ -89,7 +86,7 @@ export function useBroadcasterTelemetry(params: {
                 ? seed.coords.speed
                 : undefined,
           };
-          setRoutePoints((prev) => [...prev.slice(-199), seedPoint]);
+          setStoreRoutePoints((prev) => [...prev.slice(-199), seedPoint]);
           pendingRef.current.push({
             recordedAt: new Date(seed.timestamp ?? Date.now()).toISOString(),
             lat: seed.coords.latitude,
@@ -123,7 +120,7 @@ export function useBroadcasterTelemetry(params: {
                   ? pos.coords.speed
                   : undefined,
             };
-            setRoutePoints((prev) => [...prev.slice(-199), point]);
+            setStoreRoutePoints((prev) => [...prev.slice(-199), point]);
             pendingRef.current.push({
               recordedAt: new Date(pos.timestamp ?? Date.now()).toISOString(),
               lat: pos.coords.latitude,
@@ -135,7 +132,7 @@ export function useBroadcasterTelemetry(params: {
           },
         );
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Location watcher failed");
+        onErrorRef.current?.(e instanceof Error ? e.message : "Location watcher failed");
       }
     }
 
@@ -151,7 +148,7 @@ export function useBroadcasterTelemetry(params: {
             body: { transportMode, points: batch },
           });
         } catch (e) {
-          onError?.(e instanceof Error ? e.message : "Location sync failed");
+          onErrorRef.current?.(e instanceof Error ? e.message : "Location sync failed");
         }
       }
       try {
@@ -160,7 +157,7 @@ export function useBroadcasterTelemetry(params: {
           body: {},
         });
       } catch (e) {
-        onError?.(e instanceof Error ? e.message : "Heartbeat failed");
+        onErrorRef.current?.(e instanceof Error ? e.message : "Heartbeat failed");
       }
     }, HEARTBEAT_MS);
 
@@ -171,7 +168,18 @@ export function useBroadcasterTelemetry(params: {
       watcherRef.current = null;
       if (!sessionId) clearStore();
     };
-  }, [active, sessionId, transportMode, onError, clearStore, setStorePermission]);
+  }, [
+    active,
+    sessionId,
+    transportMode,
+    clearStore,
+    setStorePermission,
+    setStoreRoutePoints,
+  ]);
 
-  return { routePoints, hasPermission };
+  const state = useLiveBroadcastStore.getState();
+  return {
+    routePoints: state.routePoints,
+    hasPermission: state.hasLocationPermission,
+  };
 }
