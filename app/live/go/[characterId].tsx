@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -100,11 +107,50 @@ export default function GoLiveControlScreen() {
   } | null>(null);
   const [recentDestinations, setRecentDestinations] = useState<SavedDestination[]>([]);
   const [showRecent, setShowRecent] = useState(false);
+  const hideRecentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [placeSessionToken] = useState(() =>
     Math.random().toString(36).slice(2),
   );
 
+  // Drive market / zone creation — mirrors OwnerLiveControlPanel.startTick().
+  // Without this, runRoomTick never fires unless the Vercel cron is running.
+  useEffect(() => {
+    if (!roomId) return;
+    const id = setInterval(() => {
+      void apiFetch(`/api/live/rooms/${roomId}/tick`, { method: "POST" }).catch(() => undefined);
+    }, 1500);
+    return () => clearInterval(id);
+  }, [roomId]);
+
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+
+  function cancelHideRecent() {
+    if (hideRecentTimerRef.current) {
+      clearTimeout(hideRecentTimerRef.current);
+      hideRecentTimerRef.current = null;
+    }
+  }
+
+  function scheduleHideRecent() {
+    cancelHideRecent();
+    hideRecentTimerRef.current = setTimeout(() => setShowRecent(false), 250);
+  }
+
+  function selectRecentDestination(d: SavedDestination) {
+    cancelHideRecent();
+    setDestination({
+      lat: d.lat,
+      lng: d.lng,
+      label: d.label,
+      placeId: d.placeId,
+    });
+    setDestinationQuery(d.label);
+    setShowRecent(false);
+    setDestinationSuggestions([]);
+    Keyboard.dismiss();
+  }
+
+  useEffect(() => () => cancelHideRecent(), []);
 
   useEffect(() => {
     loadRecentDestinations().then(setRecentDestinations).catch(() => undefined);
@@ -215,6 +261,9 @@ export default function GoLiveControlScreen() {
   }
 
   async function pickSuggestion(placeId: string) {
+    cancelHideRecent();
+    setShowRecent(false);
+    Keyboard.dismiss();
     setDestinationLoading(true);
     try {
       const res = await apiFetch<{
@@ -273,7 +322,10 @@ export default function GoLiveControlScreen() {
         ) : null}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 16, gap: 16 }}
+      >
         {!sessionId ? (
           <View style={{ gap: 16 }}>
             <Card>
@@ -323,9 +375,10 @@ export default function GoLiveControlScreen() {
                     void fetchDestinationSuggestions(t);
                   }}
                   onFocus={() => {
+                    cancelHideRecent();
                     if (destinationQuery.trim().length === 0) setShowRecent(true);
                   }}
-                  onBlur={() => setShowRecent(false)}
+                  onBlur={scheduleHideRecent}
                 />
               </View>
             </View>
@@ -346,12 +399,8 @@ export default function GoLiveControlScreen() {
                 {recentDestinations.map((d, i) => (
                   <Pressable
                     key={`${d.label}-${i}`}
-                    onPress={() => {
-                      setDestination({ lat: d.lat, lng: d.lng, label: d.label, placeId: d.placeId });
-                      setDestinationQuery(d.label);
-                      setShowRecent(false);
-                      setDestinationSuggestions([]);
-                    }}
+                    onPressIn={() => selectRecentDestination(d)}
+                    onPress={() => selectRecentDestination(d)}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 10,
@@ -386,6 +435,7 @@ export default function GoLiveControlScreen() {
                 {destinationSuggestions.map((s, i) => (
                   <Pressable
                     key={s.placeId}
+                    onPressIn={() => void pickSuggestion(s.placeId)}
                     onPress={() => void pickSuggestion(s.placeId)}
                     style={{
                       paddingHorizontal: 12,
