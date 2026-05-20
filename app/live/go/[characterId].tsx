@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Location from "expo-location";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Screen } from "@/components/ui/Screen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -15,6 +16,41 @@ import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
+
+const RECENT_DESTINATIONS_KEY = "camtok:recent_destinations";
+const MAX_RECENT = 5;
+
+type SavedDestination = {
+  placeId: string | null;
+  label: string;
+  lat: number;
+  lng: number;
+};
+
+async function loadRecentDestinations(): Promise<SavedDestination[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RECENT_DESTINATIONS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as SavedDestination[];
+  } catch {
+    return [];
+  }
+}
+
+async function saveRecentDestination(dest: SavedDestination): Promise<void> {
+  try {
+    const existing = await loadRecentDestinations();
+    const filtered = existing.filter(
+      (d) =>
+        d.placeId !== dest.placeId ||
+        d.label.toLowerCase() !== dest.label.toLowerCase(),
+    );
+    const updated = [dest, ...filtered].slice(0, MAX_RECENT);
+    await AsyncStorage.setItem(RECENT_DESTINATIONS_KEY, JSON.stringify(updated));
+  } catch {
+    // best-effort
+  }
+}
 
 const MODES: { id: TransportMode; label: string; emoji: string }[] = [
   { id: "walking", label: "Walking", emoji: "🚶" },
@@ -62,11 +98,17 @@ export default function GoLiveControlScreen() {
     label: string;
     placeId: string | null;
   } | null>(null);
+  const [recentDestinations, setRecentDestinations] = useState<SavedDestination[]>([]);
+  const [showRecent, setShowRecent] = useState(false);
   const [placeSessionToken] = useState(() =>
     Math.random().toString(36).slice(2),
   );
 
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+
+  useEffect(() => {
+    loadRecentDestinations().then(setRecentDestinations).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setStoreTransportMode(transportMode);
@@ -117,6 +159,17 @@ export default function GoLiveControlScreen() {
         setSessionId(res.sessionId);
         setRoomId(res.roomId);
         setStoreTransportMode(transportMode);
+        if (destination) {
+          void saveRecentDestination({
+            placeId: destination.placeId,
+            label: destination.label,
+            lat: destination.lat,
+            lng: destination.lng,
+          });
+        }
+        router.replace(
+          `/room/${res.roomId}?sessionId=${encodeURIComponent(res.sessionId)}&mode=driver`,
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start session");
@@ -266,11 +319,57 @@ export default function GoLiveControlScreen() {
                   value={destinationQuery}
                   onChangeText={(t) => {
                     setDestination(null);
+                    setShowRecent(t.trim().length === 0);
                     void fetchDestinationSuggestions(t);
                   }}
+                  onFocus={() => {
+                    if (destinationQuery.trim().length === 0) setShowRecent(true);
+                  }}
+                  onBlur={() => setShowRecent(false)}
                 />
               </View>
             </View>
+            {/* Recent destinations — shown when input is focused & empty */}
+            {showRecent && recentDestinations.length > 0 && destinationSuggestions.length === 0 ? (
+              <View
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.12)",
+                  backgroundColor: "rgba(0,0,0,0.55)",
+                  overflow: "hidden",
+                }}
+              >
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 0.8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
+                  RECENT
+                </Text>
+                {recentDestinations.map((d, i) => (
+                  <Pressable
+                    key={`${d.label}-${i}`}
+                    onPress={() => {
+                      setDestination({ lat: d.lat, lng: d.lng, label: d.label, placeId: d.placeId });
+                      setDestinationQuery(d.label);
+                      setShowRecent(false);
+                      setDestinationSuggestions([]);
+                    }}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderTopWidth: 1,
+                      borderTopColor: "rgba(255,255,255,0.07)",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13 }}>🕐</Text>
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 }} numberOfLines={1}>
+                      {d.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {destinationLoading ? (
               <Text className="text-xs text-muted-foreground">Searching places…</Text>
             ) : null}

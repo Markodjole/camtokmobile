@@ -42,7 +42,7 @@ function AuthGate() {
     return <Redirect href="/(auth)/login" />;
   }
   if (session && inAuthGroup) {
-    return <Redirect href="/(tabs)/live" />;
+    return <Redirect href="/live/go" />;
   }
 
   // Fullscreen screens manage their own chrome
