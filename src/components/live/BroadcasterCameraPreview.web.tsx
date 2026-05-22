@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { startBroadcasterP2p } from "@/lib/liveP2p.web";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 
 type Props = {
   /** When set, the broadcaster connects WebRTC to this session id. */
@@ -72,12 +73,21 @@ export function BroadcasterCameraPreview({
 
   useEffect(() => {
     if (!liveSessionId || !stream) return;
-    let cleanup: (() => void) | undefined;
+
+    const store = useLiveBroadcastStore.getState();
+    if (store.p2pSessionId === liveSessionId && store.p2pCleanup) {
+      return;
+    }
+
+    store.p2pCleanup?.();
     let cancelled = false;
     startBroadcasterP2p(liveSessionId, stream)
       .then((fn) => {
-        if (cancelled) fn();
-        else cleanup = fn;
+        if (cancelled) {
+          fn();
+          return;
+        }
+        useLiveBroadcastStore.getState().setP2pCleanup(liveSessionId, fn);
       })
       .catch((e) => {
         if (!cancelled)
@@ -87,7 +97,6 @@ export function BroadcasterCameraPreview({
       });
     return () => {
       cancelled = true;
-      cleanup?.();
     };
   }, [liveSessionId, stream]);
 

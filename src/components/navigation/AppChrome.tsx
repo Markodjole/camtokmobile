@@ -2,6 +2,7 @@ import React from "react";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 
 type NavItem = {
   label: string;
@@ -56,19 +57,25 @@ export function AppBottomBar() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const router = useRouter();
+  const activeBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
 
   const items: NavItem[] = [
     {
-      label: "Viewer",
-      icon: "●",
-      isActive: (path) => path.startsWith("/live") || path.startsWith("/room/"),
-      onPress: () => router.push("/(tabs)/live"),
-    },
-    {
       label: "Driver",
       icon: "＋",
-      isActive: (path) => path.startsWith("/live/go"),
+      isActive: (path) =>
+        path.startsWith("/live/go") ||
+        (!!activeBroadcastSessionId && path.startsWith("/room/")) ||
+        (!path.startsWith("/live") && !path.startsWith("/room/")),
       onPress: () => router.push("/live/go"),
+    },
+    {
+      label: "Viewer",
+      icon: "●",
+      isActive: (path) =>
+        (path.startsWith("/live") && !path.startsWith("/live/go")) ||
+        (path.startsWith("/room/") && !activeBroadcastSessionId),
+      onPress: () => router.push("/(tabs)/live"),
     },
     {
       label: "Wallet",

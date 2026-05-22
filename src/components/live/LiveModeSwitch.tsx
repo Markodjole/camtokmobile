@@ -22,25 +22,6 @@ export function LiveModeSwitch() {
       }}
     >
       <Pressable
-        onPress={() => router.push("/(tabs)/live")}
-        style={{
-          borderRadius: 10,
-          paddingHorizontal: 10,
-          paddingVertical: 6,
-          backgroundColor: viewerActive ? "rgba(59,130,246,0.25)" : "transparent",
-        }}
-      >
-        <Text
-          style={{
-            color: viewerActive ? "#bfdbfe" : "#a1a1aa",
-            fontSize: 12,
-            fontWeight: "700",
-          }}
-        >
-          Viewer
-        </Text>
-      </Pressable>
-      <Pressable
         onPress={() => router.push("/live/go")}
         style={{
           borderRadius: 10,
@@ -57,6 +38,25 @@ export function LiveModeSwitch() {
           }}
         >
           Driver
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={() => router.push("/(tabs)/live")}
+        style={{
+          borderRadius: 10,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          backgroundColor: viewerActive ? "rgba(59,130,246,0.25)" : "transparent",
+        }}
+      >
+        <Text
+          style={{
+            color: viewerActive ? "#bfdbfe" : "#a1a1aa",
+            fontSize: 12,
+            fontWeight: "700",
+          }}
+        >
+          Viewer
         </Text>
       </Pressable>
     </View>

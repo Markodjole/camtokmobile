@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
   Keyboard,
   Pressable,
   ScrollView,
@@ -14,13 +13,10 @@ import { Screen } from "@/components/ui/Screen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { LiveMap } from "@/components/live/LiveMap";
-import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
 import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { apiFetch } from "@/lib/api";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
-import { useLiveMapStale } from "@/hooks/useLiveMapStale";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
 
@@ -88,12 +84,9 @@ export default function GoLiveControlScreen() {
   const setSessionId = useLiveBroadcastStore((s) => s.setSession);
   const setRoomId = useLiveBroadcastStore((s) => s.setRoomId);
   const routePoints = useLiveBroadcastStore((s) => s.routePoints);
-  const hasPermission = useLiveBroadcastStore((s) => s.hasLocationPermission);
   const [transportMode, setTransportMode] = useState<TransportMode>(storeTransportMode);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [ending, setEnding] = useState(false);
-  const [mapResetKey, setMapResetKey] = useState(0);
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destinationSuggestions, setDestinationSuggestions] = useState<
     Array<{ placeId: string; primary: string; secondary: string | null }>
@@ -122,7 +115,15 @@ export default function GoLiveControlScreen() {
     return () => clearInterval(id);
   }, [roomId]);
 
-  const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+  // If a live session is already active (e.g. user navigated back), go
+  // straight to the room instead of showing the setup form again.
+  useEffect(() => {
+    if (sessionId && roomId) {
+      router.replace(
+        `/room/${roomId}?sessionId=${encodeURIComponent(sessionId)}&mode=driver`,
+      );
+    }
+  }, [sessionId, roomId, router]);
 
   function cancelHideRecent() {
     if (hideRecentTimerRef.current) {
@@ -164,19 +165,6 @@ export default function GoLiveControlScreen() {
   const lastPoint = routePoints[routePoints.length - 1];
   useMapTilePreload(lastPoint?.lat, lastPoint?.lng);
 
-  const mapStale = useLiveMapStale({
-    lat: lastPoint?.lat,
-    lng: lastPoint?.lng,
-    requireMovement: true,
-    speedMps: lastPoint?.speedMps,
-    staleAfterMs: 25_000,
-    enabled: !!sessionId && routePoints.length > 0,
-  });
-
-  const refreshMap = useCallback(() => {
-    setMapResetKey((k) => k + 1);
-  }, []);
-
   async function goLive() {
     if (!characterId) return;
     setStarting(true);
@@ -200,7 +188,9 @@ export default function GoLiveControlScreen() {
         },
       });
       if ("error" in res) {
-        setError(res.error);
+        setError(
+          typeof res.error === "string" ? res.error : "Could not start session",
+        );
       } else {
         setSessionId(res.sessionId);
         setRoomId(res.roomId);
@@ -286,21 +276,6 @@ export default function GoLiveControlScreen() {
     }
   }
 
-  async function endLive() {
-    if (!sessionId) return;
-    setEnding(true);
-    try {
-      await apiFetch(`/api/live/sessions/${sessionId}/end`, {
-        method: "POST",
-        body: {},
-      }).catch(() => undefined);
-      clearBroadcastStore();
-      Alert.alert("Ended", "Live session ended.");
-    } finally {
-      setEnding(false);
-    }
-  }
-
   return (
     <Screen padded={false}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -326,8 +301,7 @@ export default function GoLiveControlScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, gap: 16 }}
       >
-        {!sessionId ? (
-          <View style={{ gap: 16 }}>
+        <View style={{ gap: 16 }}>
             <Card>
               <CardTitle>Transport mode</CardTitle>
               <CardDescription>
@@ -474,7 +448,7 @@ export default function GoLiveControlScreen() {
             ) : null}
 
             {error ? (
-              <Text className="text-xs text-accent">{error}</Text>
+              <Text className="text-xs text-accent">{String(error)}</Text>
             ) : null}
 
             <Button
@@ -491,132 +465,6 @@ export default function GoLiveControlScreen() {
               fullWidth
             />
           </View>
-        ) : (
-          <View style={{ gap: 16 }}>
-            <View
-              style={{
-                height: 360,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: "#27272a",
-                backgroundColor: "#000",
-              }}
-            >
-              <BroadcasterCameraPreview
-                liveSessionId={sessionId}
-                facing="back"
-              />
-            </View>
-
-            <Card>
-              <CardTitle>Broadcasting</CardTitle>
-              <CardDescription>
-                Camera + GPS + heartbeat are live. On web we also push the
-                video over WebRTC; Expo Go shows only the local preview
-                until you attach a dev client with `react-native-webrtc`.
-              </CardDescription>
-              <View className="mt-3 gap-1">
-                <Text className="text-xs text-muted-foreground">
-                  Room ID: {roomId}
-                </Text>
-                <Text className="text-xs text-muted-foreground">
-                  Session: {sessionId}
-                </Text>
-                <Text className="text-xs text-muted-foreground">
-                  Points buffered: {routePoints.length}
-                </Text>
-                <Text className="text-xs text-muted-foreground">
-                  Location permission:{" "}
-                  {hasPermission === null
-                    ? "requesting…"
-                    : hasPermission
-                      ? "granted"
-                      : "denied"}
-                </Text>
-              </View>
-            </Card>
-
-            <View
-              style={{
-                height: 192,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: "#27272a",
-                backgroundColor: "#000",
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              <LiveMap routePoints={routePoints} mapResetKey={mapResetKey} />
-              {sessionId ? (
-                <Pressable
-                  onPress={refreshMap}
-                  accessibilityLabel="Refresh map"
-                  style={{
-                    position: "absolute",
-                    right: 8,
-                    top: 8,
-                    zIndex: 20,
-                    height: 36,
-                    minWidth: 36,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 9999,
-                    backgroundColor: "rgba(0,0,0,0.7)",
-                    paddingHorizontal: 8,
-                  }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 18 }}>↻</Text>
-                </Pressable>
-              ) : null}
-              {mapStale ? (
-                <View
-                  style={{
-                    position: "absolute",
-                    left: 8,
-                    right: 48,
-                    top: 8,
-                    zIndex: 20,
-                    borderRadius: 10,
-                    borderWidth: 1,
-                    borderColor: "rgba(245,158,11,0.45)",
-                    backgroundColor: "rgba(245,158,11,0.18)",
-                    paddingHorizontal: 8,
-                    paddingVertical: 6,
-                  }}
-                >
-                  <Text style={{ color: "rgba(255,237,213,0.95)", fontSize: 11 }}>
-                    Map may be stuck — tap ↻
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            {error ? (
-              <Text className="text-xs text-accent">{error}</Text>
-            ) : null}
-
-            <Button
-              label={ending ? "Ending…" : "End live"}
-              onPress={endLive}
-              loading={ending}
-              variant="destructive"
-              fullWidth
-            />
-            {roomId ? (
-              <Button
-                label="Open room view"
-                variant="secondary"
-                onPress={() =>
-                  router.push(
-                    `/room/${roomId}?sessionId=${encodeURIComponent(sessionId)}&mode=driver`,
-                  )
-                }
-                fullWidth
-              />
-            ) : null}
-          </View>
-        )}
       </ScrollView>
     </Screen>
   );

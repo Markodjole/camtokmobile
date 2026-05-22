@@ -143,14 +143,32 @@ function WebRtcPreview({
 
   useEffect(() => {
     if (!liveSessionId || !stream) return;
+
+    const store = useLiveBroadcastStore.getState();
+    if (store.p2pSessionId === liveSessionId && store.p2pCleanup) {
+      return;
+    }
+
+    store.p2pCleanup?.();
     let cancelled = false;
     startBroadcasterP2p(liveSessionId, stream)
-      .then((fn) => { if (cancelled) fn(); else cleanupBroadcast.current = fn; })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Broadcast failed."); });
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        cleanupBroadcast.current = fn;
+        useLiveBroadcastStore.getState().setP2pCleanup(liveSessionId, fn);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Broadcast failed.");
+        }
+      });
     return () => {
       cancelled = true;
-      cleanupBroadcast.current?.();
       cleanupBroadcast.current = null;
+      // Keep WebRTC alive when navigating to the driver room — cleared on end session.
     };
   }, [liveSessionId, stream]);
 

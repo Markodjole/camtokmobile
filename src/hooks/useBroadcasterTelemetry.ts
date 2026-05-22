@@ -108,17 +108,27 @@ export function useBroadcasterTelemetry(params: {
             distanceInterval: 0,
           },
           (pos) => {
+            const speedMps =
+              pos.coords.speed != null && !Number.isNaN(pos.coords.speed)
+                ? pos.coords.speed
+                : undefined;
+            // On Android, coords.heading is -1 when the device can't determine
+            // direction (stationary / no GPS bearing). On iOS, it uses CLLocation
+            // course which is also -1 below ~0.5 m/s. Suppress heading when
+            // negative or when speed is too low — otherwise the viewer map
+            // spins randomly while the driver stands still.
+            const heading =
+              pos.coords.heading != null &&
+              !Number.isNaN(pos.coords.heading) &&
+              pos.coords.heading >= 0 &&
+              (speedMps ?? 0) >= 0.5
+                ? pos.coords.heading
+                : undefined;
             const point: RoutePoint = {
               lat: pos.coords.latitude,
               lng: pos.coords.longitude,
-              heading:
-                pos.coords.heading != null && !Number.isNaN(pos.coords.heading)
-                  ? pos.coords.heading
-                  : undefined,
-              speedMps:
-                pos.coords.speed != null && !Number.isNaN(pos.coords.speed)
-                  ? pos.coords.speed
-                  : undefined,
+              heading,
+              speedMps,
             };
             setStoreRoutePoints((prev) => [...prev.slice(-199), point]);
             pendingRef.current.push({

@@ -127,6 +127,8 @@ export async function startBroadcasterP2p(
   let lastOffer: string | null = null;
   let lastOfferUfrag: string | null = null;
   let isNegotiating = false;
+  let negotiateGen = 0;
+  let cleaned = false;
   let lastViewerReadyAt = 0;
   const vcBuf = new Map<string, RTCIceCandidateInit[]>();
 
@@ -142,8 +144,10 @@ export async function startBroadcasterP2p(
   };
 
   const sendOffer = async () => {
-    if (isNegotiating) return;
+    if (isNegotiating || cleaned) return;
     isNegotiating = true;
+    const gen = ++negotiateGen;
+    let localPc: RTCPeerConnection | null = null;
     try {
       clearOfferResend();
       closePc();
@@ -151,37 +155,82 @@ export async function startBroadcasterP2p(
       lastOffer = null;
       lastOfferUfrag = null;
 
-      const p = makePc();
-      (stream as any).getTracks().forEach((t: any) => p.addTrack(t, stream as any));
-      p.oniceconnectionstatechange = () => {
+      localPc = makePc();
+      (stream as any)
+        .getTracks()
+        .forEach((t: any) => localPc!.addTrack(t, stream as any));
+      localPc.oniceconnectionstatechange = () => {
         if (
-          p.iceConnectionState === "connected" ||
-          p.iceConnectionState === "completed"
-        ) clearOfferResend();
+          localPc &&
+          (localPc.iceConnectionState === "connected" ||
+            localPc.iceConnectionState === "completed")
+        ) {
+          clearOfferResend();
+        }
       };
-      pc = p;
+      if (cleaned || gen !== negotiateGen) return;
+      pc = localPc;
 
-      const offer = await p.createOffer({} as any);
+      const offer = await localPc.createOffer({} as any);
+      if (
+        cleaned ||
+        gen !== negotiateGen ||
+        localPc.signalingState === "closed"
+      ) {
+        return;
+      }
+
       const ug = iceUfrag((offer as any).sdp ?? "");
-
-      p.onicecandidate = (e: any) => {
-        if (!e.candidate) return;
-        send({ type: "bc-candidate", candidate: e.candidate.toJSON(), forOfferUfrag: ug });
+      localPc.onicecandidate = (e: any) => {
+        if (!e.candidate || cleaned || gen !== negotiateGen) return;
+        send({
+          type: "bc-candidate",
+          candidate: e.candidate.toJSON(),
+          forOfferUfrag: ug,
+        });
       };
       lastOfferUfrag = ug;
-      await p.setLocalDescription(offer);
-      const sdp = (p.localDescription as any)?.sdp ?? (offer as any).sdp ?? "";
+      try {
+        await localPc.setLocalDescription(offer);
+      } catch (e) {
+        if (localPc.signalingState !== "closed") {
+          console.warn("[p2p] setLocalDescription(offer) failed:", e);
+        }
+        if (pc === localPc) closePc();
+        return;
+      }
+      if (cleaned || gen !== negotiateGen || pc !== localPc) return;
+
+      const sdp =
+        (localPc.localDescription as any)?.sdp ?? (offer as any).sdp ?? "";
       lastOffer = sdp;
       send({ type: "offer", sdp, offerUfrag: ug });
 
       let n = 0;
       offerRetryTimer = setInterval(() => {
         n++;
-        if (!lastOffer || !lastOfferUfrag) { clearOfferResend(); return; }
-        if (!pc || pc.signalingState !== "have-local-offer") { clearOfferResend(); return; }
+        if (cleaned || gen !== negotiateGen) {
+          clearOfferResend();
+          return;
+        }
+        if (!lastOffer || !lastOfferUfrag) {
+          clearOfferResend();
+          return;
+        }
+        if (!pc || pc.signalingState !== "have-local-offer") {
+          clearOfferResend();
+          return;
+        }
         const viewerRecent = Date.now() - lastViewerReadyAt < 15000;
-        if (n === 4 && viewerRecent) { clearOfferResend(); void sendOffer(); return; }
-        if (n > 20) { clearOfferResend(); return; }
+        if (n === 4 && viewerRecent && !isNegotiating) {
+          clearOfferResend();
+          void sendOffer();
+          return;
+        }
+        if (n > 20) {
+          clearOfferResend();
+          return;
+        }
         send({ type: "offer", sdp: lastOffer, offerUfrag: lastOfferUfrag });
       }, 2000);
     } finally {
@@ -247,7 +296,11 @@ export async function startBroadcasterP2p(
   void sendOffer();
 
   const watchdog = setInterval(() => {
-    if (!pc) { void sendOffer(); return; }
+    if (cleaned || isNegotiating) return;
+    if (!pc) {
+      void sendOffer();
+      return;
+    }
     const ss = pc.signalingState;
     const ice = pc.iceConnectionState;
     if (ss === "closed" || ice === "failed" || ice === "disconnected") {
@@ -256,6 +309,8 @@ export async function startBroadcasterP2p(
   }, 10000);
 
   return () => {
+    cleaned = true;
+    negotiateGen++;
     clearOfferResend();
     clearInterval(watchdog);
     void ch.unsubscribe();
@@ -385,7 +440,15 @@ export async function startViewerP2p(
       return;
     }
     if (g !== negotiateId || cleaned) return;
-    await newPc.setLocalDescription(answer);
+    try {
+      await newPc.setLocalDescription(answer);
+    } catch (e) {
+      processingUfrag = null;
+      if (newPc.signalingState !== "closed" && !cleaned) {
+        fail(e instanceof Error ? e.message : "setLocalDescription err");
+      }
+      return;
+    }
     if (g !== negotiateId || cleaned) return;
 
     const answerSdp = (newPc.localDescription as any)?.sdp ?? answer.sdp ?? "";

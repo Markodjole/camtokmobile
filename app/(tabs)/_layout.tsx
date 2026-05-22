@@ -16,6 +16,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      initialRouteName="go"
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -25,15 +26,6 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: "#a1a1aa",
       }}
     >
-      <Tabs.Screen
-        name="live"
-        options={{
-          title: "Live",
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18 }}>●</Text>
-          ),
-        }}
-      />
       <Tabs.Screen
         name="go"
         options={{
@@ -47,6 +39,15 @@ export default function TabsLayout() {
             e.preventDefault();
             router.push("/live/go");
           },
+        }}
+      />
+      <Tabs.Screen
+        name="live"
+        options={{
+          title: "Live",
+          tabBarIcon: ({ color }) => (
+            <Text style={{ color, fontSize: 18 }}>●</Text>
+          ),
         }}
       />
       <Tabs.Screen

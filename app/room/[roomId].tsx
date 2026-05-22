@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
 import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
+import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
 import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
@@ -63,7 +64,6 @@ export default function RoomScreen() {
   const destinationRoute = useDestinationRoute(roomId ?? null);
   const placeBet = usePlaceBet(roomId ?? null);
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
-  const localBroadcastStream = useLiveBroadcastStore((s) => s.localStream);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
 
@@ -426,7 +426,9 @@ export default function RoomScreen() {
         />
       </View>
 
-      {/* Video layer — always mounted; WebRTC connection persists through PiP swaps */}
+      {/* Video layer — always mounted; WebRTC connection persists through PiP swaps.
+          Driver: BroadcasterCameraPreview starts the camera + WebRTC publish and
+          shows the local feed.  Viewer: LiveVideoPlayer receives the remote stream. */}
       <View
         style={
           mapExpanded
@@ -443,10 +445,18 @@ export default function RoomScreen() {
             : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
         }
       >
-        <LiveVideoPlayer
-          liveSessionId={effectiveSessionId}
-          localStream={isOwnLiveSession ? localBroadcastStream : null}
-        />
+        {isOwnLiveSession ? (
+          <BroadcasterCameraPreview
+            liveSessionId={effectiveSessionId}
+            facing="back"
+            style={{ flex: 1 }}
+          />
+        ) : (
+          <LiveVideoPlayer
+            liveSessionId={effectiveSessionId}
+            localStream={null}
+          />
+        )}
       </View>
 
       {/* Top gradient scrim */}

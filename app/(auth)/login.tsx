@@ -72,8 +72,8 @@ export default function LoginScreen() {
               <Text className="text-sm text-muted-foreground">
                 Don't have an account?{" "}
               </Text>
-              <Link href="/(auth)/signup" className="text-sm text-primary">
-                Sign up
+              <Link href="/(auth)/signup" asChild>
+                <Text className="text-sm text-primary">Sign up</Text>
               </Link>
             </View>
           </View>
