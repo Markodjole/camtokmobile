@@ -3,7 +3,9 @@ node_modules/
 dist/
 web-build/
 
-# Native
+# Native (CNG — EAS/prebuild generates android/ and ios/)
+/android/
+/ios/
 ios/Pods/
 ios/build/
 android/build/
