@@ -7,6 +7,8 @@ import {
   View,
 } from "react-native";
 import * as Location from "expo-location";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
@@ -66,6 +68,18 @@ export default function RoomScreen() {
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+  const broadcastTransportMode = useLiveBroadcastStore((s) => s.transportMode);
+
+  // Lock to landscape when driver is on a two-wheeled vehicle; restore on unmount.
+  useEffect(() => {
+    if (!isDriverMode) return;
+    const isTwoWheeled = TWO_WHEELED_MODES.has(broadcastTransportMode);
+    if (!isTwoWheeled) return;
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    return () => {
+      void ScreenOrientation.unlockAsync();
+    };
+  }, [isDriverMode, broadcastTransportMode]);
 
   // Pre-fetch map tiles for the driver's current location the moment we know it
   const firstPoint = room.data?.routePoints?.[0] ?? routePoints.data?.[0];
@@ -386,6 +400,28 @@ export default function RoomScreen() {
               }
         }
       >
+        {/* Perspective stretch for two-wheeled driver: compensates for handlebar mount angle */}
+        <View
+          style={
+            isDriverMode && TWO_WHEELED_MODES.has(broadcastTransportMode)
+              ? {
+                  flex: 1,
+                  // perspective must be on the parent in React Native
+                  transform: [{ perspective: 600 }],
+                }
+              : { flex: 1 }
+          }
+        >
+        <View
+          style={
+            isDriverMode && TWO_WHEELED_MODES.has(broadcastTransportMode)
+              ? {
+                  flex: 1,
+                  transform: [{ rotateX: "18deg" }, { scaleY: 1.12 }],
+                }
+              : { flex: 1 }
+          }
+        >
         <LiveMap
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
@@ -424,6 +460,8 @@ export default function RoomScreen() {
               : (id) => setSelectedGridCellId(id)
           }
         />
+        </View>
+        </View>
       </View>
 
       {/* Video layer — always mounted; WebRTC connection persists through PiP swaps.

@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
+import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -74,10 +75,12 @@ function WebRtcPreview({
 }: Props & { rtc: WebRtcRuntime }) {
   const setSession = useLiveBroadcastStore((s) => s.setSession);
   const setLocalStream = useLiveBroadcastStore((s) => s.setLocalStream);
+  const transportMode = useLiveBroadcastStore((s) => s.transportMode);
   const [permission, requestPermission] = useCameraPermissions();
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cleanupBroadcast = useRef<(() => void) | null>(null);
+  const useWide = TWO_WHEELED_MODES.has(transportMode);
 
   useEffect(() => {
     if (permission && !permission.granted && permission.canAskAgain) {
@@ -91,14 +94,19 @@ function WebRtcPreview({
     let current: MediaStream | null = null;
     const start = async () => {
       try {
+        const videoConstraints: Record<string, unknown> = {
+          facingMode: facing === "front" ? "user" : "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        };
+        if (useWide) {
+          // zoom: 0.5 selects the ultra-wide lens on iOS/Android phones
+          videoConstraints.zoom = 0.5;
+        }
         const s = (await Promise.race([
           runtime.mediaDevices.getUserMedia({
             audio: true,
-            video: {
-              facingMode: facing === "front" ? "user" : "environment",
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
+            video: videoConstraints,
           }),
           new Promise<never>((_, reject) =>
             setTimeout(
@@ -127,7 +135,7 @@ function WebRtcPreview({
       current?.getTracks().forEach((t) => t.stop?.());
       setStream(null);
     };
-  }, [facing, permission?.granted, runtime]);
+  }, [facing, permission?.granted, runtime, useWide]);
 
   // Push session id + local stream into the global broadcast store so the
   // room screen can render the broadcaster's own camera even if this preview

@@ -193,7 +193,7 @@ export async function startBroadcasterP2p(
       try {
         await localPc.setLocalDescription(offer);
       } catch (e) {
-        if (localPc.signalingState !== "closed") {
+        if ((localPc.signalingState as string) !== "closed") {
           console.warn("[p2p] setLocalDescription(offer) failed:", e);
         }
         if (pc === localPc) closePc();

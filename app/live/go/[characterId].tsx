@@ -19,6 +19,7 @@ import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
+import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 
 const RECENT_DESTINATIONS_KEY = "camtok:recent_destinations";
 const MAX_RECENT = 5;
@@ -60,8 +61,10 @@ const MODES: { id: TransportMode; label: string; emoji: string }[] = [
   { id: "run", label: "Running", emoji: "🏃" },
   { id: "bike", label: "Bike", emoji: "🚴" },
   { id: "scooter", label: "Scooter", emoji: "🛴" },
+  { id: "motorcycle", label: "Moto", emoji: "🏍️" },
   { id: "car", label: "Car", emoji: "🚗" },
 ];
+
 
 /**
  * Twin of `apps/web/src/components/live/OwnerLiveControlPanel.tsx`.

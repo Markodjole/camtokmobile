@@ -46,6 +46,7 @@
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
+      "expo-screen-orientation",
       [
         "expo-camera",
         {
