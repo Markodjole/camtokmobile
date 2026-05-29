@@ -7,7 +7,6 @@ import {
   View,
 } from "react-native";
 import * as Location from "expo-location";
-import * as ScreenOrientation from "expo-screen-orientation";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -71,11 +70,16 @@ export default function RoomScreen() {
   const broadcastTransportMode = useLiveBroadcastStore((s) => s.transportMode);
 
   // Lock to landscape when driver is on a two-wheeled vehicle; restore on unmount.
+  // Dynamic import keeps old dev clients alive when the native module is absent.
   useEffect(() => {
     if (!isDriverMode || !TWO_WHEELED_MODES.has(broadcastTransportMode)) return;
-    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    void import("expo-screen-orientation")
+      .then((m) => m.lockAsync(m.OrientationLock.LANDSCAPE))
+      .catch(() => {});
     return () => {
-      void ScreenOrientation.unlockAsync().catch(() => {});
+      void import("expo-screen-orientation")
+        .then((m) => m.unlockAsync())
+        .catch(() => {});
     };
   }, [isDriverMode, broadcastTransportMode]);
 
