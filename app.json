@@ -3,7 +3,7 @@
     "name": "CamTok",
     "slug": "camtokmobile",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "scheme": "camtok",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
