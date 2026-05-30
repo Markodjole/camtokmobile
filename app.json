@@ -60,7 +60,8 @@
           "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withStreamTopCrop.js"
     ],
     "experiments": {
       "typedRoutes": true

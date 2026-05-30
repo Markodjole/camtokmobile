@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { startBroadcasterP2p } from "@/lib/liveP2p.web";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
+import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
+import { prepareBroadcastStream } from "@/lib/streamTopCrop.web";
 
 type Props = {
   /** When set, the broadcaster connects WebRTC to this session id. */
@@ -24,6 +26,7 @@ export function BroadcasterCameraPreview({
   style,
 }: Props) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  const cropCleanup = useRef<(() => void) | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +49,16 @@ export function BroadcasterCameraPreview({
           return;
         }
         current = s;
-        setStream(s);
+        cropCleanup.current?.();
+        const { stream: broadcastStream, cleanup } = await prepareBroadcastStream(s);
+        if (!active) {
+          cleanup();
+          broadcastStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        cropCleanup.current = cleanup;
+        current = broadcastStream;
+        setStream(broadcastStream);
       } catch (e) {
         if (!active) return;
         setError(
@@ -58,6 +70,8 @@ export function BroadcasterCameraPreview({
 
     return () => {
       active = false;
+      cropCleanup.current?.();
+      cropCleanup.current = null;
       current?.getTracks().forEach((t) => t.stop());
       setStream(null);
     };
@@ -107,19 +121,21 @@ export function BroadcasterCameraPreview({
         style,
       ]}
     >
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      {React.createElement("video" as any, {
-        ref,
-        playsInline: true,
-        autoPlay: true,
-        muted: true,
-        style: {
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          transform: facing === "front" ? "scaleX(-1)" : undefined,
-        },
-      })}
+      <SquareTopVideoFrame style={{ flex: 1 }}>
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {React.createElement("video" as any, {
+          ref,
+          playsInline: true,
+          autoPlay: true,
+          muted: true,
+          style: {
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            transform: facing === "front" ? "scaleX(-1)" : undefined,
+          },
+        })}
+      </SquareTopVideoFrame>
       {error ? (
         <View
           style={{

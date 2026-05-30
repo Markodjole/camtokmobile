@@ -5,6 +5,7 @@ import { startBroadcasterP2p } from "@/lib/liveP2p.native";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
+import { prepareBroadcastStream } from "@/lib/streamTopCrop.native";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -81,6 +82,7 @@ function WebRtcPreview({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cleanupBroadcast = useRef<(() => void) | null>(null);
+  const cropCleanup = useRef<(() => void) | null>(null);
   const useWide = TWO_WHEELED_MODES.has(transportMode);
 
   useEffect(() => {
@@ -122,8 +124,17 @@ function WebRtcPreview({
           ),
         ])) as MediaStream;
         if (!active) { s.getTracks().forEach((t) => t.stop?.()); return; }
-        current = s;
-        setStream(s);
+        cropCleanup.current?.();
+        const { stream: broadcastStream, cleanup: releaseCrop } =
+          await prepareBroadcastStream(s as unknown as globalThis.MediaStream);
+        if (!active) {
+          releaseCrop();
+          broadcastStream.getTracks().forEach((t) => t.stop?.());
+          return;
+        }
+        cropCleanup.current = releaseCrop;
+        current = broadcastStream as unknown as MediaStream;
+        setStream(current);
         setError(null);
       } catch (e) {
         if (!active) return;
@@ -133,6 +144,8 @@ function WebRtcPreview({
     void start();
     return () => {
       active = false;
+      cropCleanup.current?.();
+      cropCleanup.current = null;
       current?.getTracks().forEach((t) => t.stop?.());
       setStream(null);
     };
