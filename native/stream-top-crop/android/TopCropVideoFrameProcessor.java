@@ -5,7 +5,12 @@ import com.oney.WebRTCModule.videoEffects.VideoFrameProcessor;
 import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoFrame;
 
-/** Keeps the top 50% of each frame; bottom half is not encoded or sent. */
+/**
+ * Keeps the top 50% of the frame in display orientation at full width.
+ * On phones the buffer is often landscape with rotation 90/270 — cropping buffer
+ * height would trim the wide horizontal FOV, so we crop the buffer axis that maps
+ * to display height instead.
+ */
 public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
     private static final float TOP_FRACTION = 0.5f;
 
@@ -18,9 +23,41 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
             return frame;
         }
 
-        final int cropHeight = Math.max(1, Math.round(height * TOP_FRACTION));
+        final int rotation = frame.getRotation();
+        final int offsetX;
+        final int offsetY;
+        final int cropWidth;
+        final int cropHeight;
+        final int outWidth;
+        final int outHeight;
+
+        if (rotation == 90 || rotation == 270) {
+            // Buffer width → display height. Trim bottom half of display by cropping buffer width.
+            final int keepWidth = Math.max(1, Math.round(width * TOP_FRACTION));
+            cropHeight = height;
+            outHeight = height;
+            if (rotation == 90) {
+                offsetX = 0;
+                cropWidth = keepWidth;
+                outWidth = keepWidth;
+            } else {
+                offsetX = width - keepWidth;
+                cropWidth = keepWidth;
+                outWidth = keepWidth;
+            }
+            offsetY = 0;
+        } else {
+            // Buffer height → display height. Trim bottom half by cropping buffer height.
+            offsetX = 0;
+            offsetY = 0;
+            cropWidth = width;
+            outWidth = width;
+            cropHeight = Math.max(1, Math.round(height * TOP_FRACTION));
+            outHeight = cropHeight;
+        }
+
         VideoFrame.Buffer cropped = buffer.cropAndScale(
-                0, 0, width, cropHeight, width, cropHeight);
-        return new VideoFrame(cropped, frame.getRotation(), frame.getTimestampNs());
+                offsetX, offsetY, cropWidth, cropHeight, outWidth, outHeight);
+        return new VideoFrame(cropped, rotation, frame.getTimestampNs());
     }
 }

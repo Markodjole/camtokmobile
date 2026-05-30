@@ -236,7 +236,7 @@ function WebRtcPreview({
           <runtime.RTCView
             streamURL={streamURL}
             style={{ flex: 1 }}
-            objectFit={useWide ? "contain" : "cover"}
+            objectFit="contain"
             mirror={facing === "front"}
             zOrder={0}
           />

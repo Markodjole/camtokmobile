@@ -7,25 +7,40 @@ export const STREAM_TOP_VISIBLE_FRACTION = 0.5;
 type Props = {
   children: React.ReactNode;
   style?: ViewStyle;
-  /** When true the stream is already top-cropped before WebRTC encode (square display). */
+  /**
+   * When true the stream is already top-cropped at encode time (full width kept).
+   * Fits width inside the square — no side crop.
+   */
   sourceCropped?: boolean;
 };
 
 /**
- * Square video frame. With `sourceCropped` (default) the stream already has the bottom
- * half removed at encode time — show it in a 1:1 box. Otherwise clip display-only to the
- * top 50% of a full portrait frame.
+ * Square viewport. Encoded streams use width-first fit (full ultra-wide FOV).
+ * Uncropped fallback uses a tall inner clip so cover keeps full width and cuts bottom.
  */
 export function SquareTopVideoFrame({
   children,
   style,
   sourceCropped = true,
 }: Props) {
-  const aspectRatio = sourceCropped ? 1 : STREAM_TOP_VISIBLE_FRACTION;
+  if (sourceCropped) {
+    return (
+      <View
+        style={[
+          { flex: 1, aspectRatio: 1, overflow: "hidden", backgroundColor: "#000" },
+          style,
+        ]}
+      >
+        <View style={{ width: "100%", height: "100%", justifyContent: "flex-start" }}>
+          {children}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[{ flex: 1, overflow: "hidden", backgroundColor: "#000" }, style]}>
-      <View style={{ width: "100%", aspectRatio }}>
+      <View style={{ width: "100%", aspectRatio: STREAM_TOP_VISIBLE_FRACTION }}>
         {children}
       </View>
     </View>

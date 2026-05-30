@@ -149,7 +149,7 @@ export function BroadcasterCameraPreview({
           style: {
             width: "100%",
             height: "100%",
-            objectFit: useWide ? "contain" : "cover",
+            objectFit: "contain",
             transform: facing === "front" ? "scaleX(-1)" : undefined,
           },
         })}
