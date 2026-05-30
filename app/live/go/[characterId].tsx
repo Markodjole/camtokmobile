@@ -87,7 +87,9 @@ export default function GoLiveControlScreen() {
   const setSessionId = useLiveBroadcastStore((s) => s.setSession);
   const setRoomId = useLiveBroadcastStore((s) => s.setRoomId);
   const routePoints = useLiveBroadcastStore((s) => s.routePoints);
-  const [transportMode, setTransportMode] = useState<TransportMode>(storeTransportMode);
+  const [transportMode, setTransportMode] = useState<TransportMode>(
+    storeTransportMode === "car" ? "bike" : storeTransportMode,
+  );
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [destinationQuery, setDestinationQuery] = useState("");

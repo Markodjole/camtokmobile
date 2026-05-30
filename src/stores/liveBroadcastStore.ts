@@ -30,7 +30,7 @@ type LiveBroadcastState = {
 export const useLiveBroadcastStore = create<LiveBroadcastState>((set) => ({
   sessionId: null,
   roomId: null,
-  transportMode: "car",
+  transportMode: "bike",
   hasLocationPermission: null,
   localStream: null,
   routePoints: [],
