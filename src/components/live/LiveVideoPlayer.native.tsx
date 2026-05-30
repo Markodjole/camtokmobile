@@ -124,7 +124,7 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
           <rtc.RTCView
             streamURL={streamURL}
             style={{ flex: 1 }}
-            objectFit="cover"
+            objectFit="contain"
             mirror={false}
             zOrder={0}
           />

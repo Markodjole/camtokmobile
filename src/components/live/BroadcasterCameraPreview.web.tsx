@@ -3,8 +3,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { startBroadcasterP2p } from "@/lib/liveP2p.web";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
+import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
 import { prepareBroadcastStream } from "@/lib/streamTopCrop.web";
+import { buildWideVideoConstraints } from "@/lib/wideCamera.web";
 
 type Props = {
   /** When set, the broadcaster connects WebRTC to this session id. */
@@ -27,6 +29,8 @@ export function BroadcasterCameraPreview({
 }: Props) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const cropCleanup = useRef<(() => void) | null>(null);
+  const transportMode = useLiveBroadcastStore((s) => s.transportMode);
+  const useWide = TWO_WHEELED_MODES.has(transportMode);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,14 +40,28 @@ export function BroadcasterCameraPreview({
 
     const start = async () => {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: facing === "front" ? "user" : "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: true,
-        });
+        const baseVideo = {
+          facingMode: facing === "front" ? "user" : "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        };
+        const video =
+          useWide && facing === "back"
+            ? ((await buildWideVideoConstraints(
+                navigator.mediaDevices,
+                baseVideo,
+              )) as MediaTrackConstraints)
+            : (baseVideo as MediaTrackConstraints);
+
+        let s: MediaStream;
+        try {
+          s = await navigator.mediaDevices.getUserMedia({ video, audio: true });
+        } catch {
+          s = await navigator.mediaDevices.getUserMedia({
+            video: baseVideo,
+            audio: true,
+          });
+        }
         if (!active) {
           s.getTracks().forEach((t) => t.stop());
           return;
@@ -75,7 +93,7 @@ export function BroadcasterCameraPreview({
       current?.getTracks().forEach((t) => t.stop());
       setStream(null);
     };
-  }, [facing]);
+  }, [facing, useWide]);
 
   useEffect(() => {
     const el = ref.current;
@@ -131,7 +149,7 @@ export function BroadcasterCameraPreview({
           style: {
             width: "100%",
             height: "100%",
-            objectFit: "cover",
+            objectFit: useWide ? "contain" : "cover",
             transform: facing === "front" ? "scaleX(-1)" : undefined,
           },
         })}

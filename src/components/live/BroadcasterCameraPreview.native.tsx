@@ -6,6 +6,7 @@ import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
 import { prepareBroadcastStream } from "@/lib/streamTopCrop.native";
+import { buildWideVideoConstraints } from "@/lib/wideCamera.native";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -15,6 +16,9 @@ type MediaStream = {
 type WebRtcRuntime = {
   mediaDevices: {
     getUserMedia: (constraints: unknown) => Promise<MediaStream>;
+    enumerateDevices: () => Promise<
+      Array<{ deviceId: string; kind: string; label: string; facing?: string }>
+    >;
   };
   RTCView: React.ComponentType<{
     streamURL: string;
@@ -97,15 +101,15 @@ function WebRtcPreview({
     let current: MediaStream | null = null;
     const start = async () => {
       try {
-        const videoConstraints: Record<string, unknown> = {
+        const baseVideo: Record<string, unknown> = {
           facingMode: facing === "front" ? "user" : "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         };
-        if (useWide) {
-          // zoom: 0.5 selects the ultra-wide lens on iOS/Android phones
-          videoConstraints.zoom = 0.5;
-        }
+        const videoConstraints =
+          useWide && facing === "back"
+            ? await buildWideVideoConstraints(runtime.mediaDevices, baseVideo)
+            : baseVideo;
         const s = (await Promise.race([
           runtime.mediaDevices.getUserMedia({
             audio: true,
@@ -232,7 +236,7 @@ function WebRtcPreview({
           <runtime.RTCView
             streamURL={streamURL}
             style={{ flex: 1 }}
-            objectFit="cover"
+            objectFit={useWide ? "contain" : "cover"}
             mirror={facing === "front"}
             zOrder={0}
           />
