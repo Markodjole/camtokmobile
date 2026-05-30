@@ -3,7 +3,7 @@
     "name": "CamTok",
     "slug": "camtokmobile",
     "version": "0.1.0",
-    "orientation": "default",
+    "orientation": "portrait",
     "scheme": "camtok",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -46,7 +46,6 @@
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
-      "expo-screen-orientation",
       [
         "expo-camera",
         {

@@ -4,20 +4,9 @@ import {
   Alert,
   Pressable,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import { TWO_WHEELED_MODES } from "@/lib/transportMode";
-import {
-  clampDriverMapStretch,
-  DEFAULT_DRIVER_MAP_STRETCH,
-  DRIVER_MAP_STRETCH_KEY,
-  DRIVER_MAP_STRETCH_STEP,
-  MAX_DRIVER_MAP_STRETCH,
-  MIN_DRIVER_MAP_STRETCH,
-} from "@/lib/driverMapStretch";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
@@ -67,7 +56,6 @@ export default function RoomScreen() {
   const isDriverMode = mode === "driver";
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const room = useLiveRoom(roomId ?? null);
   const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
@@ -78,39 +66,8 @@ export default function RoomScreen() {
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
-  const broadcastTransportMode = useLiveBroadcastStore((s) => s.transportMode);
 
-  // Lock to landscape when driver is on a two-wheeled vehicle; restore on unmount.
-  // Dynamic import keeps old dev clients alive when the native module is absent.
-  useEffect(() => {
-    if (!isDriverMode || !TWO_WHEELED_MODES.has(broadcastTransportMode)) return;
-    void import("expo-screen-orientation")
-      .then((m) => m.lockAsync(m.OrientationLock.LANDSCAPE))
-      .catch(() => {});
-    return () => {
-      void import("expo-screen-orientation")
-        .then((m) => m.unlockAsync())
-        .catch(() => {});
-    };
-  }, [isDriverMode, broadcastTransportMode]);
-
-  useEffect(() => {
-    void AsyncStorage.getItem(DRIVER_MAP_STRETCH_KEY).then((raw) => {
-      if (raw == null) return;
-      const parsed = Number.parseFloat(raw);
-      if (!Number.isNaN(parsed)) {
-        setMapStretchY(clampDriverMapStretch(parsed));
-      }
-    });
-  }, []);
-
-  const updateMapStretchY = useCallback((next: number) => {
-    const clamped = clampDriverMapStretch(next);
-    setMapStretchY(clamped);
-    void AsyncStorage.setItem(DRIVER_MAP_STRETCH_KEY, String(clamped));
-  }, []);
-
-  // Pre-fetch map tiles for the driver's current location the moment we know it
+  // Pre-fetch map tiles
   const firstPoint = room.data?.routePoints?.[0] ?? routePoints.data?.[0];
   useMapTilePreload(firstPoint?.lat, firstPoint?.lng);
 
@@ -124,7 +81,6 @@ export default function RoomScreen() {
   const [endingDriverSession, setEndingDriverSession] = useState(false);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
   const [mapResetKey, setMapResetKey] = useState(0);
-  const [mapStretchY, setMapStretchY] = useState(DEFAULT_DRIVER_MAP_STRETCH);
   const isOwnLiveSession =
     !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
 
@@ -405,20 +361,9 @@ export default function RoomScreen() {
   }
 
   const data = room.data;
-  const isTwoWheeledDriver =
-    isDriverMode && TWO_WHEELED_MODES.has(broadcastTransportMode);
-  const mapAreaWidth = isTwoWheeledDriver ? screenW * 0.7 : screenW;
-  const sidePanelWidth = screenW * 0.3;
   const pipSize = 124;
   const pipLeft = 12;
   const pipBottom = Math.max(insets.bottom + 72, 96);
-  const streamPipSize = isTwoWheeledDriver
-    ? Math.round(Math.min(148, screenH * 0.38))
-    : pipSize;
-  const streamPipLeft = 12;
-  const streamPipBottom = isTwoWheeledDriver
-    ? Math.max(insets.bottom, 10)
-    : pipBottom;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -427,50 +372,20 @@ export default function RoomScreen() {
       {/* Map layer — always mounted so camera state is not reset on PiP swap */}
       <View
         style={
-          isTwoWheeledDriver
-            ? {
+          mapExpanded
+            ? { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
+            : {
                 position: "absolute",
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: mapAreaWidth,
-                zIndex: 5,
+                left: pipLeft,
+                bottom: pipBottom,
+                width: pipSize,
+                height: pipSize,
+                zIndex: 30,
+                borderRadius: 16,
+                overflow: "hidden",
               }
-            : mapExpanded
-              ? { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
-              : {
-                  position: "absolute",
-                  left: pipLeft,
-                  bottom: pipBottom,
-                  width: pipSize,
-                  height: pipSize,
-                  zIndex: 30,
-                  borderRadius: 16,
-                  overflow: "hidden",
-                }
         }
       >
-        {/* Vertical stretch for handlebar mount: driver looks down at the screen */}
-        <View
-          style={
-            isTwoWheeledDriver
-              ? {
-                  flex: 1,
-                  transform: [{ perspective: 600 }],
-                }
-              : { flex: 1 }
-          }
-        >
-        <View
-          style={
-            isTwoWheeledDriver
-              ? {
-                  flex: 1,
-                  transform: [{ rotateX: "18deg" }, { scaleY: mapStretchY }],
-                }
-              : { flex: 1 }
-          }
-        >
         <LiveMap
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
@@ -509,38 +424,23 @@ export default function RoomScreen() {
               : (id) => setSelectedGridCellId(id)
           }
         />
-        </View>
-        </View>
       </View>
 
-      {/* Video layer — bottom-left PiP for two-wheeled driver; swap layout for others */}
+      {/* Video layer — square top-crop preview; WebRTC connection persists through PiP swaps */}
       <View
         style={
-          isTwoWheeledDriver
+          mapExpanded
             ? {
                 position: "absolute",
-                left: streamPipLeft,
-                bottom: streamPipBottom,
-                width: streamPipSize,
-                height: streamPipSize,
+                left: pipLeft,
+                bottom: pipBottom,
+                width: pipSize,
+                height: pipSize,
                 zIndex: 30,
                 borderRadius: 16,
                 overflow: "hidden",
-                borderWidth: 1,
-                borderColor: "rgba(255,255,255,0.25)",
               }
-            : mapExpanded
-              ? {
-                  position: "absolute",
-                  left: pipLeft,
-                  bottom: pipBottom,
-                  width: pipSize,
-                  height: pipSize,
-                  zIndex: 30,
-                  borderRadius: 16,
-                  overflow: "hidden",
-                }
-              : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
+            : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
         }
       >
         {isOwnLiveSession ? (
@@ -557,8 +457,7 @@ export default function RoomScreen() {
         )}
       </View>
 
-      {/* Top gradient scrim — viewers / non-two-wheeled only */}
-      {!isTwoWheeledDriver ? (
+      {/* Top gradient scrim */}
       <View
         pointerEvents="none"
         style={{
@@ -568,158 +467,7 @@ export default function RoomScreen() {
           zIndex: 10,
         }}
       />
-      ) : null}
 
-      {isTwoWheeledDriver ? (
-        <SafeAreaView
-          edges={["top", "right", "bottom"]}
-          style={{
-            position: "absolute",
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: sidePanelWidth,
-            zIndex: 50,
-            backgroundColor: "rgba(0,0,0,0.62)",
-            paddingHorizontal: 10,
-            paddingTop: 8,
-            paddingBottom: Math.max(insets.bottom, 8),
-          }}
-        >
-          <View style={{ gap: 8, flex: 1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Pressable
-                onPress={blurOnWeb(() => router.back())}
-                accessibilityLabel="Close live room"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: "rgba(255,255,255,0.12)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 16 }}>✕</Text>
-              </Pressable>
-              <View
-                style={{
-                  borderRadius: 4,
-                  backgroundColor: "rgba(239,68,68,0.3)",
-                  paddingHorizontal: 6,
-                  paddingVertical: 2,
-                }}
-              >
-                <Text
-                  style={{
-                    color: "#f87171",
-                    fontSize: 10,
-                    fontWeight: "800",
-                    letterSpacing: 1.2,
-                  }}
-                >
-                  LIVE
-                </Text>
-              </View>
-            </View>
-
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }} numberOfLines={2}>
-              {data.characterName}
-            </Text>
-
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <TransportModeIcon mode={data.transportMode} className="text-sm" />
-              <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11 }}>
-                {String(data.transportMode).replace("_", " ")}
-              </Text>
-            </View>
-
-            {currentMarket ? (
-              <View
-                style={{
-                  borderRadius: 12,
-                  backgroundColor: "rgba(255,255,255,0.08)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  gap: 4,
-                }}
-              >
-                <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 11 }} numberOfLines={2}>
-                  {currentMarket.title}
-                </Text>
-                <MarketTimer locksAt={currentMarket.locksAt} />
-              </View>
-            ) : null}
-
-            {data.destination ? (
-              <View
-                style={{
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "rgba(248,113,113,0.45)",
-                  backgroundColor: "rgba(239,68,68,0.18)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: "#fee2e2", fontSize: 11, fontWeight: "700" }} numberOfLines={2}>
-                  📍 {data.destination.label}
-                </Text>
-              </View>
-            ) : null}
-
-            <MapStretchControl value={mapStretchY} onChange={updateMapStretchY} />
-
-            {!mapFollow ? (
-              <Pressable
-                onPress={blurOnWeb(() => setMapFollow(true))}
-                style={{
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "rgba(252,211,77,0.45)",
-                  backgroundColor: "rgba(245,158,11,0.25)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: "#fffbeb", fontSize: 11, fontWeight: "700" }}>
-                  ◎ Center map
-                </Text>
-              </Pressable>
-            ) : null}
-
-            {mapStale ? (
-              <Pressable
-                onPress={blurOnWeb(refreshMap)}
-                style={{
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: "rgba(245,158,11,0.4)",
-                  backgroundColor: "rgba(245,158,11,0.15)",
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: "rgba(255,237,213,0.95)", fontSize: 11, textAlign: "center" }}>
-                  Map stuck — tap to refresh
-                </Text>
-              </Pressable>
-            ) : null}
-
-            <View style={{ flex: 1 }} />
-
-            <DriverStatusBar
-              compact
-              routePoints={resolvedRoutePoints}
-              sessionId={effectiveSessionId}
-              onEndSession={handleEndDriverSession}
-              endingSession={endingDriverSession}
-            />
-          </View>
-        </SafeAreaView>
-      ) : (
-      <>
       {/* Top bar */}
       <SafeAreaView edges={["top"]} style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 40 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
@@ -888,11 +636,7 @@ export default function RoomScreen() {
         pointerEvents="none"
         style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 220, zIndex: 10 }}
       />
-      </>
-      )}
 
-      {!isTwoWheeledDriver ? (
-      <>
       {/* Joystick / driver bar — plain View, guaranteed visible */}
       <View
         style={{
@@ -945,8 +689,6 @@ export default function RoomScreen() {
           </>
         )}
       </View>
-      </>
-      ) : null}
 
       {roomId ? (
         <MarketComposerSheet
@@ -1026,86 +768,16 @@ function GridBetBar({
   );
 }
 
-function MapStretchControl({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (next: number) => void;
-}) {
-  return (
-    <View
-      style={{
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.15)",
-        backgroundColor: "rgba(255,255,255,0.06)",
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        gap: 6,
-      }}
-    >
-      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" }}>
-        Map stretch
-      </Text>
-      <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10 }}>
-        Tune for handlebar viewing angle
-      </Text>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable
-          onPress={() => onChange(value - DRIVER_MAP_STRETCH_STEP)}
-          disabled={value <= MIN_DRIVER_MAP_STRETCH}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor:
-              value <= MIN_DRIVER_MAP_STRETCH
-                ? "rgba(255,255,255,0.08)"
-                : "rgba(255,255,255,0.15)",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>−</Text>
-        </Pressable>
-        <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700", minWidth: 44, textAlign: "center" }}>
-          {value.toFixed(2)}×
-        </Text>
-        <Pressable
-          onPress={() => onChange(value + DRIVER_MAP_STRETCH_STEP)}
-          disabled={value >= MAX_DRIVER_MAP_STRETCH}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor:
-              value >= MAX_DRIVER_MAP_STRETCH
-                ? "rgba(255,255,255,0.08)"
-                : "rgba(255,255,255,0.15)",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>+</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 function DriverStatusBar({
   routePoints,
   sessionId,
   onEndSession,
   endingSession,
-  compact = false,
 }: {
   routePoints: import("@/types/live").RoutePoint[];
   sessionId: string | null;
   onEndSession: () => void;
   endingSession: boolean;
-  compact?: boolean;
 }) {
   const last = routePoints[routePoints.length - 1];
   const speedKmh = last?.speedMps != null ? Math.round(last.speedMps * 3.6) : null;
@@ -1113,17 +785,17 @@ function DriverStatusBar({
   return (
     <View
       style={{
-        marginHorizontal: compact ? 0 : 16,
-        marginBottom: compact ? 0 : 8,
-        borderRadius: compact ? 12 : 20,
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: "rgba(239,68,68,0.35)",
         backgroundColor: "rgba(0,0,0,0.75)",
-        flexDirection: compact ? "column" : "row",
-        alignItems: compact ? "stretch" : "center",
-        paddingHorizontal: compact ? 10 : 16,
-        paddingVertical: compact ? 10 : 10,
-        gap: compact ? 8 : 12,
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        gap: 12,
       }}
     >
       {/* LIVE badge */}
@@ -1148,7 +820,6 @@ function DriverStatusBar({
       </View>
 
       {/* Speed */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
       <View style={{ alignItems: "center" }}>
         <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "700", lineHeight: 20 }}>
           {speedKmh ?? "—"}
@@ -1168,7 +839,6 @@ function DriverStatusBar({
             {sessionId.slice(0, 8)}…
           </Text>
         ) : null}
-      </View>
       </View>
 
       <Pressable

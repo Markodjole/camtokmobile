@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
 import { startViewerP2p } from "@/lib/liveP2p.native";
 
 type MediaStream = { toURL: () => string };
@@ -119,13 +120,15 @@ export function LiveVideoPlayer({ liveSessionId, localStream, style }: Props) {
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
       {streamURL ? (
         rtc ? (
-        <rtc.RTCView
-          streamURL={streamURL}
-          style={{ flex: 1 }}
-          objectFit="cover"
-          mirror={false}
-          zOrder={0}
-        />
+        <SquareTopVideoFrame style={{ flex: 1 }}>
+          <rtc.RTCView
+            streamURL={streamURL}
+            style={{ flex: 1 }}
+            objectFit="cover"
+            mirror={false}
+            zOrder={0}
+          />
+        </SquareTopVideoFrame>
         ) : null
       ) : null}
 

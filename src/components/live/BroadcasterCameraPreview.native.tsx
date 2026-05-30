@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
+import { SquareTopVideoFrame } from "@/components/live/SquareTopVideoFrame";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -214,13 +215,15 @@ function WebRtcPreview({
   return (
     <View style={[{ flex: 1, backgroundColor: "#000" }, style]}>
       {streamURL ? (
-        <runtime.RTCView
-          streamURL={streamURL}
-          style={{ flex: 1 }}
-          objectFit="cover"
-          mirror={facing === "front"}
-          zOrder={0}
-        />
+        <SquareTopVideoFrame style={{ flex: 1 }}>
+          <runtime.RTCView
+            streamURL={streamURL}
+            style={{ flex: 1 }}
+            objectFit="cover"
+            mirror={facing === "front"}
+            zOrder={0}
+          />
+        </SquareTopVideoFrame>
       ) : (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>
