@@ -6,13 +6,13 @@ import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.VideoFrame;
 
 /**
- * Keeps the top 50% of the frame in display orientation at full width.
+ * Keeps the top 40% of the frame in display orientation at full width (bottom 60% cut).
  * On phones the buffer is often landscape with rotation 90/270 — cropping buffer
  * height would trim the wide horizontal FOV, so we crop the buffer axis that maps
  * to display height instead.
  */
 public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
-    private static final float TOP_FRACTION = 0.5f;
+    private static final float TOP_FRACTION = 0.4f;
 
     @Override
     public VideoFrame process(VideoFrame frame, SurfaceTextureHelper textureHelper) {
@@ -32,7 +32,7 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
         final int outHeight;
 
         if (rotation == 90 || rotation == 270) {
-            // Buffer width → display height. Trim bottom half of display by cropping buffer width.
+            // Buffer width → display height. Trim bottom 60% of display by cropping buffer width.
             final int keepWidth = Math.max(1, Math.round(width * TOP_FRACTION));
             cropHeight = height;
             outHeight = height;
@@ -47,7 +47,7 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
             }
             offsetY = 0;
         } else {
-            // Buffer height → display height. Trim bottom half by cropping buffer height.
+            // Buffer height → display height. Trim bottom 60% by cropping buffer height.
             offsetX = 0;
             offsetY = 0;
             cropWidth = width;

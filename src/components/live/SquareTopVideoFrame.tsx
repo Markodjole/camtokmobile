@@ -1,21 +1,32 @@
 import React from "react";
 import { View, type ViewStyle } from "react-native";
 
-/** Top-aligned fraction of the full camera frame kept before square crop (bottom clipped). */
-export const STREAM_TOP_VISIBLE_FRACTION = 0.5;
+/** Fraction of frame height kept (top); bottom 60% is cut when this is 0.4. */
+export const STREAM_TOP_VISIBLE_FRACTION = 0.4;
+
+/** Typical portrait width/height before crop (9:16). */
+export const PORTRAIT_FRAME_ASPECT = 9 / 16;
+
+/** Encoded stream width/height after top crop at full width. */
+export const CROPPED_STREAM_ASPECT_RATIO =
+  PORTRAIT_FRAME_ASPECT / STREAM_TOP_VISIBLE_FRACTION;
+
+export function streamPipDimensions(maxWidth: number) {
+  return {
+    width: maxWidth,
+    height: Math.round(maxWidth / CROPPED_STREAM_ASPECT_RATIO),
+  };
+}
 
 type Props = {
   children: React.ReactNode;
   style?: ViewStyle;
-  /**
-   * When true the stream is already top-cropped at encode time (full width kept).
-   * Fits width inside the square — no side crop.
-   */
+  /** When true the stream is already top-cropped at encode time (full width kept). */
   sourceCropped?: boolean;
 };
 
 /**
- * Square viewport. Encoded streams use width-first fit (full ultra-wide FOV).
+ * Video frame at the encoded stream's natural aspect (wide, top-cropped).
  * Uncropped fallback uses a tall inner clip so cover keeps full width and cuts bottom.
  */
 export function SquareTopVideoFrame({
@@ -27,13 +38,17 @@ export function SquareTopVideoFrame({
     return (
       <View
         style={[
-          { flex: 1, aspectRatio: 1, overflow: "hidden", backgroundColor: "#000" },
+          {
+            flex: 1,
+            width: "100%",
+            aspectRatio: CROPPED_STREAM_ASPECT_RATIO,
+            overflow: "hidden",
+            backgroundColor: "#000",
+          },
           style,
         ]}
       >
-        <View style={{ width: "100%", height: "100%", justifyContent: "flex-start" }}>
-          {children}
-        </View>
+        {children}
       </View>
     );
   }

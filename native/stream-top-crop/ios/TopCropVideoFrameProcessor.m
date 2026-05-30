@@ -4,7 +4,7 @@
 #import <WebRTC/RTCVideoFrame.h>
 #import <WebRTC/RTCVideoFrameBuffer.h>
 
-static const float kTopFraction = 0.5f;
+static const float kTopFraction = 0.4f;
 
 @implementation TopCropVideoFrameProcessor
 

@@ -12,6 +12,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
 import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
 import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
+import { streamPipDimensions } from "@/components/live/SquareTopVideoFrame";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
 import { MarketComposerSheet } from "@/components/live/MarketComposerSheet";
 import { TransportModeIcon } from "@/components/live/TransportModeIcon";
@@ -362,6 +363,7 @@ export default function RoomScreen() {
 
   const data = room.data;
   const pipSize = 124;
+  const videoPip = streamPipDimensions(pipSize);
   const pipLeft = 12;
   const pipBottom = Math.max(insets.bottom + 72, 96);
 
@@ -426,7 +428,7 @@ export default function RoomScreen() {
         />
       </View>
 
-      {/* Video layer — square top-crop preview; WebRTC connection persists through PiP swaps */}
+      {/* Video layer — top-crop preview at encoded aspect; WebRTC persists through PiP swaps */}
       <View
         style={
           mapExpanded
@@ -434,8 +436,8 @@ export default function RoomScreen() {
                 position: "absolute",
                 left: pipLeft,
                 bottom: pipBottom,
-                width: pipSize,
-                height: pipSize,
+                width: videoPip.width,
+                height: videoPip.height,
                 zIndex: 30,
                 borderRadius: 16,
                 overflow: "hidden",
@@ -600,7 +602,23 @@ export default function RoomScreen() {
         </View>
       ) : null}
 
-      {/* PiP decorative border (always at pip corner, non-interactive) */}
+      {/* PiP decorative border (video pip when map expanded) */}
+      {mapExpanded ? (
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: pipLeft,
+          bottom: pipBottom,
+          width: videoPip.width,
+          height: videoPip.height,
+          zIndex: 31,
+          borderRadius: 16,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.25)",
+        }}
+      />
+      ) : (
       <View
         pointerEvents="none"
         style={{
@@ -615,12 +633,13 @@ export default function RoomScreen() {
           borderColor: "rgba(255,255,255,0.25)",
         }}
       />
+      )}
       {/* PiP swap button */}
       <Pressable
         onPress={() => setMapExpanded((v) => !v)}
         style={{
           position: "absolute",
-          left: pipLeft + pipSize - 32,
+          left: pipLeft + (mapExpanded ? videoPip.width : pipSize) - 32,
           bottom: pipBottom + 6,
           zIndex: 32,
           width: 26, height: 26, borderRadius: 13,
