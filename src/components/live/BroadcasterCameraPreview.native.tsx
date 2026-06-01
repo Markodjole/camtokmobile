@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
@@ -197,6 +197,19 @@ function WebRtcPreview({
       // Keep WebRTC alive when navigating to the driver room — cleared on end session.
     };
   }, [liveSessionId, stream]);
+
+  // Phone calls can pause tracks — re-enable when the app is usable again.
+  useEffect(() => {
+    if (!stream) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active" && state !== "inactive") return;
+      for (const track of stream.getTracks()) {
+        const t = track as { enabled?: boolean; readyState?: string };
+        if (t.readyState === "live") t.enabled = true;
+      }
+    });
+    return () => sub.remove();
+  }, [stream]);
 
   const streamURL = stream ? (stream as unknown as { toURL: () => string }).toURL() : null;
 

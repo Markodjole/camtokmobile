@@ -1,4 +1,5 @@
 import "../global.css";
+import "@/tasks/liveLocationTask";
 import { Redirect, Stack, usePathname, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useKeepAwake } from "expo-keep-awake";

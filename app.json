@@ -57,7 +57,10 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming."
+          "locationAlwaysAndWhenInUsePermission": "Allow CamTok to use your location while you're streaming, including during brief interruptions like phone calls.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       "expo-web-browser",
