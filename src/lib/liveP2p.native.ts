@@ -48,12 +48,17 @@ function buildIceServers(): RTCIceServer[] {
   return servers;
 }
 
+function hasTurnCredentials(): boolean {
+  return !!(env.turnUrl && env.turnUsername && env.turnCredential);
+}
+
 function buildIceConfig(): RTCConfiguration {
+  const relay = env.iceRelayOnly && hasTurnCredentials();
   return {
     iceServers: buildIceServers(),
     bundlePolicy: "max-bundle",
     // react-native-webrtc doesn't support rtcpMuxPolicy yet
-    iceTransportPolicy: env.iceRelayOnly ? "relay" : "all",
+    iceTransportPolicy: relay ? "relay" : "all",
   };
 }
 
@@ -72,12 +77,36 @@ type BcPayload = Record<string, unknown> & {
 };
 
 function parseRawPayload(raw: unknown): BcPayload | null {
-  if (raw == null || typeof raw !== "object") return null;
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      return parseRawPayload(JSON.parse(raw) as unknown);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
-  const inner = o.payload;
-  if (inner && typeof inner === "object" && "type" in inner) return inner as BcPayload;
-  if ("type" in o) return o as BcPayload;
+  const candidates: unknown[] = [o.payload, o];
+  const nested = o.payload;
+  if (nested && typeof nested === "object") {
+    const p = nested as Record<string, unknown>;
+    candidates.push(p.payload);
+  }
+  for (const c of candidates) {
+    if (c && typeof c === "object" && "type" in c) {
+      return c as BcPayload;
+    }
+  }
   return null;
+}
+
+function teardownChannel(
+  supabase: ReturnType<typeof getSupabase>,
+  ch: RealtimeChannel,
+) {
+  void ch.unsubscribe();
+  supabase.removeChannel(ch);
 }
 
 function waitSubscribed(ch: RealtimeChannel) {
@@ -256,7 +285,9 @@ export async function startBroadcasterP2p(
           pcState !== "closed";
         if (alive && lastOffer && lastOfferUfrag && pc!.signalingState === "have-local-offer") {
           send({ type: "offer", sdp: lastOffer, offerUfrag: lastOfferUfrag });
-        } else if (!(alive && (iceState === "connected" || iceState === "completed"))) {
+        } else if (alive && (iceState === "connected" || iceState === "completed")) {
+          await sendOffer();
+        } else {
           await sendOffer();
         }
       } else if (msg.type === "answer" && typeof msg.sdp === "string") {
@@ -313,7 +344,7 @@ export async function startBroadcasterP2p(
     negotiateGen++;
     clearOfferResend();
     clearInterval(watchdog);
-    void ch.unsubscribe();
+    teardownChannel(supabase, ch);
     closePc();
     vcBuf.clear();
     lastOfferUfrag = null;
@@ -345,7 +376,13 @@ export async function startViewerP2p(
   let answerRetryTimer: ReturnType<typeof setInterval> | null = null;
   let readyRetryTimer: ReturnType<typeof setInterval> | null = null;
   let offerEverReceived = false;
+  let negotiationStartedAt = 0;
+  let gotRemoteTrack = false;
   const bcBuf = new Map<string, RTCIceCandidateInit[]>();
+  const remoteMedia =
+    rtcRuntime?.MediaStream != null
+      ? new rtcRuntime.MediaStream([])
+      : null;
 
   const send = (payload: BcPayload) =>
     void ch.send({ type: "broadcast", event: "webrtc", payload });
@@ -359,25 +396,56 @@ export async function startViewerP2p(
   };
   const fail = (m: string) => { if (!cleaned) onFailure?.(m); };
 
+  const clearRemoteMedia = () => {
+    if (!remoteMedia) return;
+    const rm = remoteMedia as MediaStream & { removeTrack?: (t: unknown) => void };
+    for (const t of [...remoteMedia.getTracks()]) {
+      rm.removeTrack?.(t);
+    }
+  };
+
   const closeViewerPc = () => {
     clearAnswerRetry();
     if (pc && pc.signalingState !== "closed") pc.close();
     pc = null;
+    clearRemoteMedia();
+    gotRemoteTrack = false;
+  };
+
+  const emitRemoteStream = () => {
+    if (!remoteMedia || remoteMedia.getTracks().length === 0) return;
+    gotRemoteTrack = true;
+    const MediaStreamCtor = rtcRuntime?.MediaStream;
+    if (!MediaStreamCtor) return;
+    const out = new MediaStreamCtor([]);
+    for (const track of remoteMedia.getTracks()) {
+      out.addTrack?.(track);
+    }
+    onRemoteStream(out);
   };
 
   const wire = (p: RTCPeerConnection, offerUfrag: string) => {
     (p as any).ontrack = (e: any) => {
-      const s: MediaStream =
-        e.streams?.[0] ??
-        (() => {
-          // react-native-webrtc MediaStream constructor
-          const MediaStreamCtor = rtcRuntime?.MediaStream;
-          if (!MediaStreamCtor) throw new Error("Missing MediaStream constructor");
-          const m = new MediaStreamCtor([]);
-          if (e.track) m.addTrack?.(e.track);
-          return m;
-        })();
-      onRemoteStream(s);
+      const stream = e.streams?.[0];
+      if (stream && remoteMedia) {
+        for (const track of stream.getTracks()) {
+          if (!remoteMedia.getTracks().some((t) => t === track)) {
+            remoteMedia.addTrack?.(track);
+          }
+        }
+      } else if (e.track && remoteMedia) {
+        if (!remoteMedia.getTracks().some((t) => t === e.track)) {
+          remoteMedia.addTrack?.(e.track);
+        }
+      } else {
+        const MediaStreamCtor = rtcRuntime?.MediaStream;
+        if (!MediaStreamCtor) return;
+        const m = new MediaStreamCtor([]);
+        if (e.track) m.addTrack?.(e.track);
+        onRemoteStream(m);
+        return;
+      }
+      emitRemoteStream();
     };
     p.oniceconnectionstatechange = () => {
       if (cleaned) return;
@@ -390,6 +458,9 @@ export async function startViewerP2p(
     };
     p.onconnectionstatechange = () => {
       if (cleaned) return;
+      if (p.connectionState === "connected" || p.connectionState === "connecting") {
+        clearStuck();
+      }
       if (p.connectionState === "failed" && p === pc) fail("Connection failed.");
     };
     p.onicecandidate = (e: any) => {
@@ -408,8 +479,26 @@ export async function startViewerP2p(
     if (!ufrag) return;
     offerEverReceived = true;
     clearReadyRetry();
-    if (seenUfrags.has(ufrag) || processingUfrag === ufrag) return;
+    if (processingUfrag === ufrag) return;
+    if (seenUfrags.has(ufrag)) {
+      const cur = pc;
+      const ice = cur?.iceConnectionState;
+      const stalled =
+        !gotRemoteTrack &&
+        negotiationStartedAt > 0 &&
+        Date.now() - negotiationStartedAt > 18_000;
+      const canRetry =
+        !cur ||
+        cur.signalingState === "closed" ||
+        ice === "failed" ||
+        ice === "disconnected" ||
+        stalled;
+      if (!canRetry) return;
+      seenUfrags.delete(ufrag);
+    }
     processingUfrag = ufrag;
+    negotiationStartedAt = Date.now();
+    gotRemoteTrack = false;
     const g = ++negotiateId;
     closeViewerPc();
     if (cleaned) { processingUfrag = null; return; }
@@ -529,26 +618,54 @@ export async function startViewerP2p(
     startReadyRetry();
   }
 
-  // Give ICE 25 s before declaring stuck — mobile networks can take 10-15 s.
-  stuckTimer = setInterval(() => {
-    if (cleaned) { clearStuck(); return; }
-    const s = pc?.iceConnectionState;
-    if (s === "connected" || s === "completed") { clearStuck(); return; }
+  const resetNegotiation = () => {
     seenUfrags.clear();
     processingUfrag = null;
+    negotiationStartedAt = 0;
+    gotRemoteTrack = false;
     offerEverReceived = false;
     bcBuf.clear();
     closeViewerPc();
     sendReady();
     startReadyRetry();
-  }, 25_000);
+  };
+
+  stuckTimer = setInterval(() => {
+    if (cleaned) { clearStuck(); return; }
+    const ice = pc?.iceConnectionState;
+    const conn = pc?.connectionState;
+    if (ice === "connected" || ice === "completed") {
+      clearStuck();
+      return;
+    }
+    if (!offerEverReceived) {
+      sendReady();
+      startReadyRetry();
+      return;
+    }
+    const checkingTooLong =
+      (ice === "checking" || ice === "new" || conn === "connecting") &&
+      negotiationStartedAt > 0 &&
+      Date.now() - negotiationStartedAt > 20_000 &&
+      !gotRemoteTrack;
+    if (checkingTooLong) {
+      resetNegotiation();
+      return;
+    }
+    if (ice === "checking" || ice === "new" || conn === "connecting") {
+      return;
+    }
+    if (ice === "failed" || ice === "disconnected" || conn === "failed") {
+      resetNegotiation();
+    }
+  }, 8_000);
 
   return () => {
     cleaned = true;
     clearStuck();
     clearAnswerRetry();
     clearReadyRetry();
-    void ch.unsubscribe();
+    teardownChannel(supabase, ch);
     closeViewerPc();
     bcBuf.clear();
     seenUfrags.clear();

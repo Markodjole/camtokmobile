@@ -42,8 +42,13 @@ function isLocalHostnameRuntime(): boolean {
   );
 }
 
+function hasTurnCredentials(): boolean {
+  return !!(env.turnUrl && env.turnUsername && env.turnCredential);
+}
+
 function buildIceConfig(): RTCConfiguration {
-  const relay = env.iceRelayOnly === true && !isLocalHostnameRuntime();
+  const relay =
+    env.iceRelayOnly === true && !isLocalHostnameRuntime() && hasTurnCredentials();
   return {
     iceServers: buildIceServers(),
     bundlePolicy: "max-bundle",
@@ -218,7 +223,9 @@ export async function startBroadcasterP2p(
           pcState !== "closed";
         if (alive && lastOffer && lastOfferUfrag && pc!.signalingState === "have-local-offer") {
           send({ type: "offer", sdp: lastOffer, offerUfrag: lastOfferUfrag });
-        } else if (!(alive && (iceState === "connected" || iceState === "completed"))) {
+        } else if (alive && (iceState === "connected" || iceState === "completed")) {
+          await sendOffer();
+        } else {
           await sendOffer();
         }
       } else if (msg.type === "answer" && typeof msg.sdp === "string") {
