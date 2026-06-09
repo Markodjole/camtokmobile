@@ -28,6 +28,8 @@ type Props = {
   driverRoute?: DriverRouteOverlay | null;
   destination?: { lat: number; lng: number; label?: string } | null;
   destinationRoute?: Array<{ lat: number; lng: number }> | null;
+  /** Green path ahead of vehicle once bets lock (driver mode). */
+  committedRouteAhead?: Array<{ lat: number; lng: number }> | null;
   /** Labels from driver routing persona (viewers see these on the map). */
   driverRouteBadges?: string[] | null;
   zones?: Array<{
@@ -154,6 +156,7 @@ function LiveMapInner({
   driverRoute,
   destination,
   destinationRoute,
+  committedRouteAhead = null,
   driverRouteBadges = null,
   zones = [],
   checkpoints = [],
@@ -519,8 +522,18 @@ function LiveMapInner({
   const showPin = !!driverRoute?.pin;
   const showLine =
     showGuidanceLine &&
+    !committedRouteAhead &&
     nextDistanceM != null &&
     nextDistanceM < 50;
+
+  const committedCoords = useMemo(
+    () =>
+      (committedRouteAhead ?? []).map((p) => ({
+        latitude: p.lat,
+        longitude: p.lng,
+      })),
+    [committedRouteAhead],
+  );
 
   const region: Region = {
     latitude: last?.lat ?? 44.0,
@@ -583,6 +596,21 @@ function LiveMapInner({
             strokeColor="rgba(59,130,246,0.8)"
             strokeWidth={5}
           />
+        ) : null}
+
+        {committedCoords.length > 1 ? (
+          <>
+            <Polyline
+              coordinates={committedCoords}
+              strokeColor="rgba(0,0,0,0.38)"
+              strokeWidth={11}
+            />
+            <Polyline
+              coordinates={committedCoords}
+              strokeColor="#22c55e"
+              strokeWidth={7}
+            />
+          </>
         ) : null}
 
         {showPin && !passedRailEnd && driverRoute?.pin ? (
@@ -687,6 +715,21 @@ function LiveMapInner({
               Google suggested route
             </Text>
           </View>
+        ) : committedCoords.length > 1 ? (
+          <View
+            style={{
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: "rgba(134,239,172,0.75)",
+              backgroundColor: "rgba(34,197,94,0.88)",
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+              Committed route
+            </Text>
+          </View>
         ) : (
           <View />
         )}
@@ -749,7 +792,8 @@ export const LiveMap = memo(LiveMapInner, (prev, next) => {
   if (
     prev.destination?.lat !== next.destination?.lat ||
     prev.destination?.lng !== next.destination?.lng ||
-    prev.destinationRoute?.length !== next.destinationRoute?.length
+    prev.destinationRoute?.length !== next.destinationRoute?.length ||
+    prev.committedRouteAhead?.length !== next.committedRouteAhead?.length
   )
     return false;
 

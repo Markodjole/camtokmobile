@@ -16,6 +16,11 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { apiFetch } from "@/lib/api";
 import { blurOnWeb } from "@/lib/blurOnWeb";
+import {
+  resolvePlaceSuggestion,
+  searchDestinationPlaces,
+  type PlaceSuggestion,
+} from "@/lib/placeSearch";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
@@ -94,9 +99,12 @@ export default function GoLiveControlScreen() {
   const [starting, setStarting] = useState(false);
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destinationSuggestions, setDestinationSuggestions] = useState<
-    Array<{ placeId: string; primary: string; secondary: string | null }>
+    PlaceSuggestion[]
   >([]);
   const [destinationLoading, setDestinationLoading] = useState(false);
+  const [destinationSearchError, setDestinationSearchError] = useState<
+    string | null
+  >(null);
   const [destination, setDestination] = useState<{
     lat: number;
     lng: number;
@@ -106,6 +114,8 @@ export default function GoLiveControlScreen() {
   const [recentDestinations, setRecentDestinations] = useState<SavedDestination[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const hideRecentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
   const [placeSessionToken] = useState(() =>
     Math.random().toString(36).slice(2),
   );
@@ -156,7 +166,14 @@ export default function GoLiveControlScreen() {
     Keyboard.dismiss();
   }
 
-  useEffect(() => () => cancelHideRecent(), []);
+  useEffect(
+    () => () => {
+      cancelHideRecent();
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchAbortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     loadRecentDestinations().then(setRecentDestinations).catch(() => undefined);
@@ -219,62 +236,81 @@ export default function GoLiveControlScreen() {
     }
   }
 
-  async function fetchDestinationSuggestions(text: string) {
+  function queueDestinationSearch(text: string) {
     const q = text.trim();
     setDestinationQuery(text);
-    if (q.length < 2) {
+    setDestinationSearchError(null);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    if (q.length < 3) {
+      searchAbortRef.current?.abort();
       setDestinationSuggestions([]);
+      setDestinationLoading(false);
       return;
     }
+
+    searchDebounceRef.current = setTimeout(() => {
+      void fetchDestinationSuggestions(q);
+    }, 450);
+  }
+
+  async function fetchDestinationSuggestions(q: string) {
+    searchAbortRef.current?.abort();
+    const ac = new AbortController();
+    searchAbortRef.current = ac;
     setDestinationLoading(true);
     try {
-      let latLngQuery = "";
+      let bias: { lat: number; lng: number } | null = null;
       try {
         const pos = await Location.getLastKnownPositionAsync();
         if (pos) {
-          latLngQuery = `&lat=${pos.coords.latitude.toFixed(6)}&lng=${pos.coords.longitude.toFixed(6)}`;
+          bias = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          };
         }
       } catch {
         // best effort only
       }
-      const res = await apiFetch<{
-        suggestions: Array<{
-          placeId: string;
-          primary: string;
-          secondary: string | null;
-        }>;
-      }>(
-        `/api/live/places/autocomplete?input=${encodeURIComponent(q)}&sessionToken=${placeSessionToken}${latLngQuery}`,
-        { anonymous: true },
-      );
-      setDestinationSuggestions(res.suggestions ?? []);
-    } catch {
+
+      const suggestions = await searchDestinationPlaces(q, {
+        sessionToken: placeSessionToken,
+        bias,
+        signal: ac.signal,
+      });
+      if (ac.signal.aborted) return;
+      setDestinationSuggestions(suggestions);
+      if (suggestions.length === 0) {
+        setDestinationSearchError("No places found. Try a more specific search.");
+      }
+    } catch (e) {
+      if (ac.signal.aborted) return;
       setDestinationSuggestions([]);
+      setDestinationSearchError(
+        e instanceof Error ? e.message : "Could not search places.",
+      );
     } finally {
-      setDestinationLoading(false);
+      if (!ac.signal.aborted) setDestinationLoading(false);
     }
   }
 
-  async function pickSuggestion(placeId: string) {
+  async function pickSuggestion(suggestion: PlaceSuggestion) {
     cancelHideRecent();
     setShowRecent(false);
+    setDestinationSearchError(null);
     Keyboard.dismiss();
     setDestinationLoading(true);
     try {
-      const res = await apiFetch<{
-        destination: {
-          lat: number;
-          lng: number;
-          label: string;
-          placeId: string | null;
-        } | null;
-      }>(
-        `/api/live/places/details?placeId=${encodeURIComponent(placeId)}&sessionToken=${placeSessionToken}`,
-        { anonymous: true },
+      const resolved = await resolvePlaceSuggestion(
+        suggestion,
+        placeSessionToken,
       );
-      if (!res.destination) return;
-      setDestination(res.destination);
-      setDestinationQuery(res.destination.label);
+      if (!resolved) {
+        setDestinationSearchError("Couldn't load that place. Try another.");
+        return;
+      }
+      setDestination(resolved);
+      setDestinationQuery(resolved.label);
       setDestinationSuggestions([]);
     } finally {
       setDestinationLoading(false);
@@ -351,7 +387,7 @@ export default function GoLiveControlScreen() {
                   onChangeText={(t) => {
                     setDestination(null);
                     setShowRecent(t.trim().length === 0);
-                    void fetchDestinationSuggestions(t);
+                    queueDestinationSearch(t);
                   }}
                   onFocus={() => {
                     cancelHideRecent();
@@ -401,6 +437,9 @@ export default function GoLiveControlScreen() {
             {destinationLoading ? (
               <Text className="text-xs text-muted-foreground">Searching places…</Text>
             ) : null}
+            {destinationSearchError ? (
+              <Text className="text-xs text-muted-foreground">{destinationSearchError}</Text>
+            ) : null}
             {destinationSuggestions.length > 0 ? (
               <View
                 style={{
@@ -413,9 +452,9 @@ export default function GoLiveControlScreen() {
               >
                 {destinationSuggestions.map((s, i) => (
                   <Pressable
-                    key={s.placeId}
-                    onPressIn={() => void pickSuggestion(s.placeId)}
-                    onPress={() => void pickSuggestion(s.placeId)}
+                    key={`${s.source}-${s.placeId}`}
+                    onPressIn={() => void pickSuggestion(s)}
+                    onPress={() => void pickSuggestion(s)}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 10,

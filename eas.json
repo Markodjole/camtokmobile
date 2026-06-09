@@ -17,6 +17,12 @@
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://tqsuhldwswkoqmwxinne.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxc3VobGR3c3drb3Ftd3hpbm5lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MTY2MDIsImV4cCI6MjA5MTk5MjYwMn0.6_2EUQcQ07alFC8VDOkQV7N7Nxj1MlWTxS8TWEoHnGc",
+        "EXPO_PUBLIC_TURN_URL": "turns:global.relay.metered.ca:443?transport=tcp",
+        "EXPO_PUBLIC_TURN_USERNAME": "170ebc24fe4d06a01f4e42d9",
+        "EXPO_PUBLIC_TURN_CREDENTIAL": "jMPju0isTtBchT1R",
+        "EXPO_PUBLIC_ICE_RELAY_ONLY": "0",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     },
@@ -27,13 +33,28 @@
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://tqsuhldwswkoqmwxinne.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxc3VobGR3c3drb3Ftd3hpbm5lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MTY2MDIsImV4cCI6MjA5MTk5MjYwMn0.6_2EUQcQ07alFC8VDOkQV7N7Nxj1MlWTxS8TWEoHnGc",
+        "EXPO_PUBLIC_TURN_URL": "turns:global.relay.metered.ca:443?transport=tcp",
+        "EXPO_PUBLIC_TURN_USERNAME": "170ebc24fe4d06a01f4e42d9",
+        "EXPO_PUBLIC_TURN_CREDENTIAL": "jMPju0isTtBchT1R",
+        "EXPO_PUBLIC_ICE_RELAY_ONLY": "0",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     },
     "production": {
       "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://camtok-web.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://tqsuhldwswkoqmwxinne.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxc3VobGR3c3drb3Ftd3hpbm5lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0MTY2MDIsImV4cCI6MjA5MTk5MjYwMn0.6_2EUQcQ07alFC8VDOkQV7N7Nxj1MlWTxS8TWEoHnGc",
+        "EXPO_PUBLIC_TURN_URL": "turns:global.relay.metered.ca:443?transport=tcp",
+        "EXPO_PUBLIC_TURN_USERNAME": "170ebc24fe4d06a01f4e42d9",
+        "EXPO_PUBLIC_TURN_CREDENTIAL": "jMPju0isTtBchT1R",
+        "EXPO_PUBLIC_ICE_RELAY_ONLY": "0",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs"
       }
     }

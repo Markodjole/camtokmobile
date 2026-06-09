@@ -33,9 +33,19 @@ import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { RoutePoint } from "@/types/live";
 import { BET_LOCK_DISTANCE_M, metersBetween } from "@/lib/geo";
 import {
+  buildRouteToPinPolyline,
+  inferTurnDirectionFromApproach,
+  inferTurnDirectionFromRoute,
+  trimPolylineAhead,
+} from "@/lib/routeGeometry";
+import { TurnBlinkOverlay } from "@/components/live/TurnBlinkOverlay";
+import {
   drivingRouteStyleBadges,
   normalizeDrivingRouteStyle,
 } from "@/lib/drivingRouteStyle";
+
+const TURN_ARROW_MAX_M = 50;
+const TURN_ARROW_MIN_M = 8;
 
 /**
  * Mobile twin of `apps/web/src/components/live/LiveRoomScreen.tsx`.
@@ -188,6 +198,24 @@ export default function RoomScreen() {
   })();
   const locked = timeLocked || distanceLocked;
 
+  const driverTurnPoint = useMemo(() => {
+    if (
+      currentMarket?.turnPointLat != null &&
+      currentMarket?.turnPointLng != null
+    ) {
+      return {
+        lat: currentMarket.turnPointLat,
+        lng: currentMarket.turnPointLng,
+      };
+    }
+    const pin = driverRoute.data?.pins?.[0];
+    return pin ? { lat: pin.lat, lng: pin.lng } : null;
+  }, [
+    currentMarket?.turnPointLat,
+    currentMarket?.turnPointLng,
+    driverRoute.data?.pins,
+  ]);
+
   const resolvedRoutePoints = useMemo(() => {
     if (!room.data) return [];
     const rdata = room.data;
@@ -209,6 +237,83 @@ export default function RoomScreen() {
     roomLocalPoints,
     routePoints.data,
   ]);
+
+  /** Green committed path ahead of the vehicle once bets lock (driver mode). */
+  const driverCommittedRoute = useMemo(() => {
+    if (!isDriverMode || !currentMarket || !locked) return null;
+    if (currentMarket.marketType === "city_grid") return null;
+    const last = resolvedRoutePoints[resolvedRoutePoints.length - 1];
+    if (!last || !driverTurnPoint) return null;
+
+    const destPoly = destinationRoute.data?.route?.polyline;
+    if (destPoly && destPoly.length >= 2) {
+      return buildRouteToPinPolyline(destPoly, last, driverTurnPoint);
+    }
+
+    const approach = driverRoute.data?.approachLine ?? [];
+    if (approach.length >= 2) {
+      const ahead = trimPolylineAhead(approach, last);
+      if (ahead.length >= 2) return ahead;
+    }
+
+    return [{ lat: last.lat, lng: last.lng }, driverTurnPoint];
+  }, [
+    isDriverMode,
+    currentMarket,
+    locked,
+    resolvedRoutePoints,
+    driverTurnPoint,
+    destinationRoute.data?.route?.polyline,
+    driverRoute.data?.approachLine,
+  ]);
+
+  const driverTurnDistanceM = useMemo(() => {
+    const pin = driverRoute.data?.pins?.[0];
+    if (pin?.distanceMeters != null) return pin.distanceMeters;
+    const last = resolvedRoutePoints[resolvedRoutePoints.length - 1];
+    if (!last || !driverTurnPoint) return null;
+    return metersBetween(last, driverTurnPoint);
+  }, [driverRoute.data?.pins, resolvedRoutePoints, driverTurnPoint]);
+
+  const driverTurnDirection = useMemo((): "left" | "right" | null => {
+    const approach = driverRoute.data?.approachLine ?? [];
+    if (approach.length >= 3 && driverTurnPoint) {
+      const fromApproach = inferTurnDirectionFromApproach(approach, driverTurnPoint);
+      if (fromApproach) return fromApproach;
+    }
+    if (driverCommittedRoute && driverCommittedRoute.length >= 3 && driverTurnPoint) {
+      const fromRoute = inferTurnDirectionFromRoute(
+        driverCommittedRoute,
+        driverTurnPoint,
+      );
+      if (fromRoute) return fromRoute;
+    }
+    const opts = currentMarket?.options ?? [];
+    const dirs = opts.flatMap((o) => {
+      const s = `${o.label} ${o.shortLabel ?? ""}`.toLowerCase();
+      if (s.includes("left")) return ["left"] as const;
+      if (s.includes("right")) return ["right"] as const;
+      return [];
+    });
+    const unique = [...new Set(dirs)];
+    if (unique.length === 1) return unique[0]!;
+    return null;
+  }, [
+    driverRoute.data?.approachLine,
+    driverTurnPoint,
+    driverCommittedRoute,
+    currentMarket?.options,
+  ]);
+
+  const showDriverTurnArrows =
+    isDriverMode &&
+    locked &&
+    !!currentMarket &&
+    currentMarket.marketType !== "city_grid" &&
+    driverTurnDirection != null &&
+    driverTurnDistanceM != null &&
+    driverTurnDistanceM <= TURN_ARROW_MAX_M &&
+    driverTurnDistanceM > TURN_ARROW_MIN_M;
 
   const lastResolved = resolvedRoutePoints[resolvedRoutePoints.length - 1];
   const lastLat = lastResolved?.lat ?? null;
@@ -416,6 +521,7 @@ export default function RoomScreen() {
           destinationRoute={
             isDriverMode ? null : (destinationRoute.data?.route?.polyline ?? null)
           }
+          committedRouteAhead={driverCommittedRoute}
           driverRouteBadges={driverRouteBadges}
           zones={gridZones}
           checkpoints={[]}
@@ -426,6 +532,13 @@ export default function RoomScreen() {
               : (id) => setSelectedGridCellId(id)
           }
         />
+        {showDriverTurnArrows && driverTurnDirection ? (
+          <TurnBlinkOverlay
+            direction={driverTurnDirection}
+            distanceM={driverTurnDistanceM}
+            urgent={driverTurnDistanceM != null && driverTurnDistanceM <= 25}
+          />
+        ) : null}
       </View>
 
       {/* Video layer — top-crop preview at encoded aspect; WebRTC persists through PiP swaps */}

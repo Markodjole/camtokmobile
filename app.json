@@ -36,7 +36,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "versionCode": 4
     },
     "web": {
       "bundler": "metro",
@@ -63,6 +64,7 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
+      "expo-task-manager",
       "expo-web-browser",
       "./plugins/withStreamTopCrop.js"
     ],

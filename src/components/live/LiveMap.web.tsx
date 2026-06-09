@@ -19,6 +19,8 @@ type Props = {
   driverRoute?: DriverRouteOverlay | null;
   destination?: { lat: number; lng: number; label?: string } | null;
   destinationRoute?: Array<{ lat: number; lng: number }> | null;
+  /** Green path ahead of vehicle once bets lock (driver mode). */
+  committedRouteAhead?: Array<{ lat: number; lng: number }> | null;
   driverRouteBadges?: string[] | null;
   zones?: Array<{
     id: string;
@@ -86,6 +88,7 @@ export function LiveMap({
   driverRoute,
   destination,
   destinationRoute,
+  committedRouteAhead = null,
   driverRouteBadges = null,
   zones = [],
   checkpoints = [],
@@ -103,6 +106,7 @@ export function LiveMap({
   const tileLayerRef = useRef<any>(null);
   const routePolyRef = useRef<any>(null);
   const driverPolyRef = useRef<any>(null);
+  const committedPolyRef = useRef<any>(null);
   const turnCircleRef = useRef<any>(null);
   const zonesLayerRef = useRef<any>(null);
   const checkpointsLayerRef = useRef<any>(null);
@@ -168,6 +172,7 @@ export function LiveMap({
       tileLayerRef.current = null;
       routePolyRef.current = null;
       driverPolyRef.current = null;
+      committedPolyRef.current = null;
       turnCircleRef.current = null;
       zonesLayerRef.current = null;
       checkpointsLayerRef.current = null;
@@ -264,6 +269,10 @@ export function LiveMap({
       map.removeLayer(driverPolyRef.current);
       driverPolyRef.current = null;
     }
+    if (committedPolyRef.current) {
+      map.removeLayer(committedPolyRef.current);
+      committedPolyRef.current = null;
+    }
     if (turnCircleRef.current) {
       map.removeLayer(turnCircleRef.current);
       turnCircleRef.current = null;
@@ -283,6 +292,7 @@ export function LiveMap({
     const showPin = !!driverRoute?.pin;
     const showLine =
       showGuidanceLine &&
+      !committedRouteAhead &&
       nextDistanceM != null &&
       nextDistanceM < 50;
     const passedRailEnd =
@@ -297,6 +307,19 @@ export function LiveMap({
         { color: "#3b82f6", weight: 8, opacity: 0.85 },
       ).addTo(map);
     }
+    if (committedRouteAhead && committedRouteAhead.length > 1) {
+      const committedGroup = L.layerGroup();
+      L.polyline(
+        committedRouteAhead.map((p) => [p.lat, p.lng]),
+        { color: "#000000", weight: 12, opacity: 0.32, lineCap: "round", lineJoin: "round" },
+      ).addTo(committedGroup);
+      L.polyline(
+        committedRouteAhead.map((p) => [p.lat, p.lng]),
+        { color: "#22c55e", weight: 7, opacity: 1, lineCap: "round", lineJoin: "round" },
+      ).addTo(committedGroup);
+      committedGroup.addTo(map);
+      committedPolyRef.current = committedGroup;
+    }
     if (showPin && !passedRailEnd && driverRoute?.pin) {
       turnCircleRef.current = L.circle(
         [driverRoute.pin.lat, driverRoute.pin.lng],
@@ -309,7 +332,7 @@ export function LiveMap({
         },
       ).addTo(map);
     }
-  }, [driverRoute, routePoints, showGuidanceLine]);
+  }, [driverRoute, routePoints, showGuidanceLine, committedRouteAhead]);
 
   useEffect(() => {
     const map = mapRef.current;
