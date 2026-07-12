@@ -556,6 +556,12 @@ function LiveMapInner({
         rotateEnabled={false}
         pitchEnabled={false}
         onPanDrag={onUserInteract}
+        onMapReady={() => {
+          if (__DEV__) {
+            // eslint-disable-next-line no-console
+            console.log("[LiveMap] Google MapView ready");
+          }
+        }}
       >
         {historyCoords.length > 1 ? (
           <Polyline

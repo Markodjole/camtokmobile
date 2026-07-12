@@ -1,10 +1,11 @@
 // Dynamic Expo config: extends app.json so we can inject secrets from env
-// (Google Maps Android API key) without committing the value to source control.
+// (Google Maps API key) without committing the value to source control.
 const baseConfig = require("./app.json").expo;
 
-const GOOGLE_MAPS_ANDROID_API_KEY =
+const GOOGLE_MAPS_API_KEY =
   process.env.GOOGLE_MAPS_ANDROID_API_KEY ||
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY ||
+  process.env.GOOGLE_MAPS_API_KEY ||
   null;
 
 module.exports = ({ config }) => {
@@ -12,14 +13,25 @@ module.exports = ({ config }) => {
 
   return {
     ...merged,
+    ios: {
+      ...(baseConfig.ios ?? {}),
+      ...(config.ios ?? {}),
+      config: {
+        ...(baseConfig.ios?.config ?? {}),
+        ...(config.ios?.config ?? {}),
+        ...(GOOGLE_MAPS_API_KEY
+          ? { googleMapsApiKey: GOOGLE_MAPS_API_KEY }
+          : {}),
+      },
+    },
     android: {
       ...(baseConfig.android ?? {}),
       ...(config.android ?? {}),
       config: {
         ...(baseConfig.android?.config ?? {}),
         ...(config.android?.config ?? {}),
-        ...(GOOGLE_MAPS_ANDROID_API_KEY
-          ? { googleMaps: { apiKey: GOOGLE_MAPS_ANDROID_API_KEY } }
+        ...(GOOGLE_MAPS_API_KEY
+          ? { googleMaps: { apiKey: GOOGLE_MAPS_API_KEY } }
           : {}),
       },
     },

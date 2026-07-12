@@ -1,39 +1,45 @@
-# Google Maps Android API Key Setup
+# Google Maps setup (CamTok mobile)
 
-The Android dev client needs a Google Maps SDK for Android API key to render the map. This is **free** for typical usage (Google's Maps SDK for Android has no quota cost).
+Native live map uses `react-native-maps` + `PROVIDER_GOOGLE`. The API key is
+injected by `app.config.js` from env / EAS build env into Android + iOS native
+config. **A new native build is required** after changing the key.
 
-## Steps to create the key
+## Enable now (map display only)
 
-1. Open https://console.cloud.google.com/google/maps-apis/credentials in any browser, sign in with a Google account.
+In [Google Cloud Console](https://console.cloud.google.com/) on the project that owns key `AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs`:
 
-2. **Create or pick a project**
-   - Click the project dropdown in the top bar.
-   - Either pick an existing project or click "New Project" → name it (e.g. `camtok-mobile`) → Create.
-
-3. **Enable the Maps SDK for Android**
-   - Go to https://console.cloud.google.com/google/maps-apis/api-list
-   - Find "Maps SDK for Android" → click it → click "Enable".
-
-4. **Create the API key**
-   - Go back to Credentials: https://console.cloud.google.com/google/maps-apis/credentials
-   - Click "Create credentials" → "API key".
-   - Copy the key — it starts with `AIza` and is ~39 characters long, e.g. `AIzaSyA-abcdefghijklmnopqrstuvwxyz0123456`.
-
-5. **(Recommended) Restrict the key to Android apps only**
-   - Click the new key, then under "Application restrictions" pick "Android apps".
-   - Add the package name `com.camtok.mobile` and the SHA‑1 fingerprint from your EAS build credentials (you can find this with `npx eas credentials`).
-   - Under "API restrictions" → restrict to "Maps SDK for Android".
-   - Save.
-
-6. **Paste the key back to the assistant** in chat (just the `AIza...` string), or set it manually:
-   - In `.env`: `GOOGLE_MAPS_ANDROID_API_KEY=AIzaSy...`
-   - Or as an EAS secret: `npx eas-cli env:create --name GOOGLE_MAPS_ANDROID_API_KEY --value AIzaSy... --visibility sensitive --environment development`.
-
-7. After the key is in place, a new EAS Android dev build is required so it bakes into `AndroidManifest.xml`:
+1. **Billing** — link a billing account (required even to use the free credit).
+2. Enable these APIs:
+   - **Maps SDK for Android** ← required for Android map tiles
+   - **Maps SDK for iOS** ← only if you run on iPhone with `PROVIDER_GOOGLE`
+3. On the API key:
+   - Application restriction: Android apps → package `com.camtok.mobile` + your SHA-1 (optional but recommended)
+   - API restriction: allow **Maps SDK for Android** (and iOS if used)
+4. Rebuild the app so the key is baked in:
    ```bash
-   npx eas-cli build --platform android --profile development
+   yarn build:dev:android
+   # or production / preview profile as needed
    ```
 
-## Pricing note
+Maps SDK map loads are covered by Google’s ~$200/mo free credit for normal usage.
 
-The Maps SDK for Android is part of Google's $200/month free credit (effectively unlimited for personal/dev usage). You will not be charged unless your app gets thousands of daily map views and you go past the free tier.
+## Keep locked for now (premium / billable REST APIs)
+
+Do **not** need to enable these for a working map. Mobile destination search already prefers Nominatim; backend can keep these disabled:
+
+| API | Used for |
+|-----|----------|
+| Places API (Autocomplete) | Destination typeahead via backend |
+| Places API (Details / Nearby) | Resolve place IDs, POIs |
+| Geocoding API | Reverse/forward geocode |
+| Directions API / Routes API | Google suggested driving routes |
+| Maps Static API | Optional; not required for SDK map |
+
+Backend flag reference (`camtok`): `GOOGLE_MAPS_APIS_DISABLED`, `GOOGLE_ROUTES_ENABLED`.
+
+## Already wired in this repo
+
+- `eas.json` — `GOOGLE_MAPS_ANDROID_API_KEY` on development / preview / production
+- `.env` — same key for local `app.config.js`
+- `app.config.js` — writes Android `googleMaps.apiKey` + iOS `googleMapsApiKey`
+- `LiveMap.native.tsx` — `PROVIDER_GOOGLE` (unchanged; no OSM fallback)

@@ -5,15 +5,15 @@ export type PlaceSuggestion = {
   placeId: string;
   primary: string;
   secondary: string | null;
-  /** Present for Nominatim hits — avoids a second lookup on pick. */
+  /** Present for free geocoder hits — avoids a Google Details call on pick. */
   lat?: number;
   lng?: number;
   label?: string;
   source: "nominatim" | "google";
 };
 
-const NOMINATIM_UA = "CamTokMobile/0.1.0 (destination search)";
-const GOOGLE_USAGE_KEY = "camtok:google_places_usage";
+/** Bumped to reset budgets burned by failed Nominatim→Google attempts. */
+const GOOGLE_USAGE_KEY = "camtok:google_places_usage_v2";
 const GOOGLE_DAILY_CAP = 25;
 const GOOGLE_SESSION_CAP = 8;
 
@@ -59,65 +59,77 @@ function cacheKey(q: string, lat?: number, lng?: number): string {
   return `${q.toLowerCase()}|${bias}`;
 }
 
-function splitDisplayName(displayName: string): { primary: string; secondary: string | null } {
-  const parts = displayName.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return { primary: displayName, secondary: null };
-  return { primary: parts[0]!, secondary: parts.slice(1, 4).join(", ") || null };
-}
-
-async function searchNominatim(
+/**
+ * Photon (Komoot) — OSM-based, free, and does not block React Native's
+ * okhttp User-Agent (unlike nominatim.openstreetmap.org which returns 403).
+ */
+async function searchPhoton(
   query: string,
   bias: { lat: number; lng: number } | null,
   signal?: AbortSignal,
 ): Promise<PlaceSuggestion[]> {
-  const url = new URL("https://nominatim.openstreetmap.org/search");
+  const url = new URL("https://photon.komoot.io/api/");
   url.searchParams.set("q", query);
-  url.searchParams.set("format", "json");
   url.searchParams.set("limit", "6");
-  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("lang", "en");
   if (bias) {
-    const d = 0.35;
-    url.searchParams.set(
-      "viewbox",
-      `${bias.lng - d},${bias.lat + d},${bias.lng + d},${bias.lat - d}`,
-    );
+    url.searchParams.set("lat", String(bias.lat));
+    url.searchParams.set("lon", String(bias.lng));
   }
 
   const res = await fetch(url.toString(), {
     signal,
-    headers: { "User-Agent": NOMINATIM_UA, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   });
   if (!res.ok) return [];
 
-  const rows = (await res.json()) as Array<{
-    place_id?: number;
-    lat?: string;
-    lon?: string;
-    display_name?: string;
-    name?: string;
-  }>;
+  const json = (await res.json()) as {
+    features?: Array<{
+      geometry?: { coordinates?: [number, number] };
+      properties?: {
+        osm_id?: number;
+        osm_type?: string;
+        name?: string;
+        street?: string;
+        housenumber?: string;
+        city?: string;
+        state?: string;
+        country?: string;
+        type?: string;
+      };
+    }>;
+  };
 
-  return rows
-    .filter((r) => r.place_id != null && r.lat && r.lon && r.display_name)
-    .map((r) => {
-      const label = r.display_name!;
-      const { primary, secondary } = splitDisplayName(
-        r.name && !label.startsWith(r.name) ? `${r.name}, ${label}` : label,
-      );
+  return (json.features ?? [])
+    .map((f, i) => {
+      const coords = f.geometry?.coordinates;
+      const p = f.properties ?? {};
+      if (!coords || coords.length < 2) return null;
+      const [lng, lat] = coords;
+      const primary =
+        p.name ||
+        [p.street, p.housenumber].filter(Boolean).join(" ") ||
+        p.city ||
+        "Place";
+      const secondary =
+        [p.street && p.name ? p.street : null, p.city, p.state, p.country]
+          .filter(Boolean)
+          .join(", ") || null;
+      const label = secondary ? `${primary}, ${secondary}` : primary;
       return {
-        placeId: `osm:${r.place_id}`,
+        placeId: `photon:${p.osm_type ?? "x"}:${p.osm_id ?? i}`,
         primary,
         secondary,
-        lat: Number(r.lat),
-        lng: Number(r.lon),
+        lat,
+        lng,
         label,
         source: "nominatim" as const,
       };
     })
-    .filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+    .filter((s): s is PlaceSuggestion => s != null && Number.isFinite(s.lat) && Number.isFinite(s.lng));
 }
 
-async function searchGoogle(
+async function searchGoogleBackend(
   query: string,
   sessionToken: string,
   bias: { lat: number; lng: number } | null,
@@ -131,27 +143,58 @@ async function searchGoogle(
     latLngQuery = `&lat=${bias.lat.toFixed(6)}&lng=${bias.lng.toFixed(6)}`;
   }
 
-  await recordGoogleCall();
   const res = await apiFetch<{
     suggestions: Array<{
       placeId: string;
       primary: string;
       secondary: string | null;
+      fullText?: string;
+      lat?: number;
+      lng?: number;
+      source?: "nominatim" | "google";
     }>;
+    source?: "nominatim" | "google";
     reason?: string;
+    message?: string | null;
   }>(
     `/api/live/places/autocomplete?input=${encodeURIComponent(query)}&sessionToken=${sessionToken}${latLngQuery}`,
     { anonymous: true, signal },
   );
 
-  if (!res.suggestions?.length) return [];
-  return res.suggestions.map((s) => ({ ...s, source: "google" as const }));
+  // Backend may already return Nominatim (after deploy) — don't burn Google budget.
+  if (res.source === "nominatim" || res.suggestions?.some((s) => s.source === "nominatim")) {
+    return (res.suggestions ?? []).map((s) => ({
+      placeId: s.placeId,
+      primary: s.primary,
+      secondary: s.secondary,
+      lat: s.lat,
+      lng: s.lng,
+      label: s.fullText ?? s.primary,
+      source: "nominatim" as const,
+    }));
+  }
+
+  if (!res.suggestions?.length) {
+    if (res.reason) throw new Error(res.message || res.reason);
+    return [];
+  }
+
+  await recordGoogleCall();
+  return res.suggestions.map((s) => ({
+    placeId: s.placeId,
+    primary: s.primary,
+    secondary: s.secondary,
+    lat: s.lat,
+    lng: s.lng,
+    label: s.fullText ?? s.primary,
+    source: "google" as const,
+  }));
 }
 
 /**
  * Cost-conscious destination search:
- * - Nominatim (free) is always tried first.
- * - Google backend is only used when Nominatim returns nothing AND daily/session caps allow it.
+ * 1. Photon (free, works from React Native)
+ * 2. Backend autocomplete (Nominatim server-side after deploy, else capped Google)
  */
 export async function searchDestinationPlaces(
   query: string,
@@ -169,17 +212,20 @@ export async function searchDestinationPlaces(
   const cached = sessionCache.get(key);
   if (cached) return cached;
 
-  const nominatim = await searchNominatim(q, bias, opts.signal).catch(() => []);
-  if (nominatim.length > 0) {
-    sessionCache.set(key, nominatim);
-    return nominatim;
+  const photon = await searchPhoton(q, bias, opts.signal).catch(() => []);
+  if (photon.length > 0) {
+    sessionCache.set(key, photon);
+    return photon;
   }
 
-  const google = await searchGoogle(q, opts.sessionToken, bias, opts.signal).catch(
-    () => [],
-  );
-  if (google.length > 0) sessionCache.set(key, google);
-  return google;
+  const backend = await searchGoogleBackend(
+    q,
+    opts.sessionToken,
+    bias,
+    opts.signal,
+  ).catch(() => []);
+  if (backend.length > 0) sessionCache.set(key, backend);
+  return backend;
 }
 
 export async function resolvePlaceSuggestion(
@@ -192,9 +238,11 @@ export async function resolvePlaceSuggestion(
   placeId: string | null;
 } | null> {
   if (
-    suggestion.source === "nominatim" &&
     suggestion.lat != null &&
-    suggestion.lng != null
+    suggestion.lng != null &&
+    (suggestion.source === "nominatim" ||
+      suggestion.placeId.startsWith("osm:") ||
+      suggestion.placeId.startsWith("photon:"))
   ) {
     return {
       lat: suggestion.lat,
@@ -207,7 +255,6 @@ export async function resolvePlaceSuggestion(
   const budget = await googleBudgetLeft();
   if (budget <= 0) return null;
 
-  await recordGoogleCall();
   const res = await apiFetch<{
     destination: {
       lat: number;
@@ -219,5 +266,8 @@ export async function resolvePlaceSuggestion(
     `/api/live/places/details?placeId=${encodeURIComponent(suggestion.placeId)}&sessionToken=${sessionToken}`,
     { anonymous: true },
   );
+
+  if (!res.destination) return null;
+  await recordGoogleCall();
   return res.destination;
 }
