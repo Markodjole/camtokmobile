@@ -8,17 +8,18 @@ const GOOGLE_MAPS_API_KEY =
   process.env.GOOGLE_MAPS_API_KEY ||
   null;
 
-module.exports = ({ config }) => {
-  const merged = { ...baseConfig, ...config };
+module.exports = ({ config } = {}) => {
+  const incoming = config ?? {};
 
   return {
-    ...merged,
+    ...baseConfig,
+    ...incoming,
     ios: {
       ...(baseConfig.ios ?? {}),
-      ...(config.ios ?? {}),
+      ...(incoming.ios ?? {}),
       config: {
         ...(baseConfig.ios?.config ?? {}),
-        ...(config.ios?.config ?? {}),
+        ...(incoming.ios?.config ?? {}),
         ...(GOOGLE_MAPS_API_KEY
           ? { googleMapsApiKey: GOOGLE_MAPS_API_KEY }
           : {}),
@@ -26,10 +27,10 @@ module.exports = ({ config }) => {
     },
     android: {
       ...(baseConfig.android ?? {}),
-      ...(config.android ?? {}),
+      ...(incoming.android ?? {}),
       config: {
         ...(baseConfig.android?.config ?? {}),
-        ...(config.android?.config ?? {}),
+        ...(incoming.android?.config ?? {}),
         ...(GOOGLE_MAPS_API_KEY
           ? { googleMaps: { apiKey: GOOGLE_MAPS_API_KEY } }
           : {}),
