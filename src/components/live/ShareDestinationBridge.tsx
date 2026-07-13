@@ -24,10 +24,20 @@ export function ShareDestinationBridge() {
     if (handlingRef.current) return;
     handlingRef.current = true;
     try {
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log("[share-dest] incoming", {
+          text: shareIntent.text?.slice(0, 200),
+          webUrl: shareIntent.webUrl,
+          type: shareIntent.type,
+          meta: shareIntent.meta,
+          raw: raw.slice(0, 240),
+        });
+      }
       const dest = await parseSharedDestination(raw);
       if (!dest) {
         setError(
-          "Couldn’t read a map destination from that share. Open the place in Google Maps and share again, or search in CamTok.",
+          "Couldn’t read that Maps share. Tip: open the place → Share (not the route overview), or search in CamTok.",
         );
         return;
       }
@@ -43,11 +53,15 @@ export function ShareDestinationBridge() {
   // Android / iOS share sheet → CamTok
   useEffect(() => {
     if (!isReady || !hasShareIntent) return;
-    const raw =
-      shareIntent.webUrl?.trim() ||
-      shareIntent.text?.trim() ||
-      (shareIntent.meta?.title as string | undefined)?.trim() ||
-      "";
+    // Prefer full text (place name + URL). webUrl alone loses the label.
+    const parts = [
+      shareIntent.text?.trim(),
+      shareIntent.webUrl?.trim(),
+      typeof shareIntent.meta?.title === "string"
+        ? shareIntent.meta.title.trim()
+        : "",
+    ].filter(Boolean) as string[];
+    const raw = [...new Set(parts)].join("\n");
     if (!raw) {
       resetShareIntent(true);
       return;
