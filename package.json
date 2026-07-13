@@ -14,6 +14,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "patch-package"
   },
   "dependencies": {
@@ -67,7 +69,8 @@
     "@types/react": "~19.1.10",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~10.0.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "3.2.4"
   },
   "expo": {
     "doctor": {

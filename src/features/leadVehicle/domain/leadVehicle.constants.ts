@@ -1,0 +1,66 @@
+import type {
+  ForwardCorridor,
+  LeadVehicleModelConfig,
+  SupportedVehicleType,
+  VehicleTrackerConfig,
+} from "./leadVehicle.types";
+
+export const DEFAULT_LEAD_VEHICLE_MODEL_CONFIG: LeadVehicleModelConfig = {
+  modelName: "mock-coco-vehicles",
+  modelVersion: "0.1.0-mock",
+  inputWidth: 320,
+  inputHeight: 320,
+  minimumDetectionConfidence: 0.4,
+  supportedClasses: [
+    "car",
+    "motorcycle",
+    "bus",
+    "truck",
+    "bicycle",
+    "unknown_vehicle",
+  ],
+};
+
+export const DEFAULT_FORWARD_CORRIDOR: ForwardCorridor = {
+  topLeftX: 0.38,
+  topRightX: 0.62,
+  topY: 0.28,
+  bottomLeftX: 0.12,
+  bottomRightX: 0.88,
+  bottomY: 0.98,
+};
+
+export const DEFAULT_TRACKER_CONFIG: VehicleTrackerConfig = {
+  maxMissedFrames: 5,
+  minimumTrackAgeFrames: 3,
+  minimumIoU: 0.2,
+  trackRetentionMs: 1000,
+};
+
+export const DEFAULT_INFERENCE_FPS = 8;
+
+export const LEAD_SWITCH_SCORE_MARGIN = 0.15;
+export const LEAD_SWITCH_CONFIRMATION_MS = 500;
+export const LEAD_ACQUISITION_CONFIRMATION_MS = 500;
+export const LEAD_LOSS_GRACE_PERIOD_MS = 750;
+
+export const SAME_DIRECTION_THRESHOLD = 0.65;
+export const MOTION_WINDOW_MS = 1000;
+export const EVENT_HEARTBEAT_MS = 1500;
+
+export const PREDICTION_MIN_VISIBLE_MS = 1800;
+export const PREDICTION_MIN_RIDER_SPEED_MPS = 1.0;
+
+export const SCORE_WEIGHTS = {
+  corridor: 0.28,
+  persistence: 0.22,
+  centrality: 0.12,
+  relativeMotion: 0.18,
+  confidence: 0.1,
+  size: 0.1,
+} as const;
+
+export const PRIMARY_VEHICLE_TYPES: SupportedVehicleType[] = [
+  "car",
+  "motorcycle",
+];

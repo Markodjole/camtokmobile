@@ -47,6 +47,11 @@ import {
   drivingRouteStyleBadges,
   normalizeDrivingRouteStyle,
 } from "@/lib/drivingRouteStyle";
+import {
+  LeadVehicleDebugOverlay,
+  useLeadVehicleTracking,
+} from "@/features/leadVehicle";
+import { useAuth } from "@/providers/AuthProvider";
 
 const TURN_ARROW_MAX_M = 50;
 const TURN_ARROW_MIN_M = 8;
@@ -88,6 +93,14 @@ export default function RoomScreen() {
     !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
   /** Rider = own live session / driver mode — nav only, no betting UI. */
   const isRider = isDriverMode || isOwnLiveSession;
+
+  const { user } = useAuth();
+  useLeadVehicleTracking({
+    enabled: isRider && !!effectiveSessionId,
+    rideId: roomId,
+    sessionId: effectiveSessionId ?? undefined,
+    riderId: user?.id,
+  });
 
   // Own GPS replaces remote route-point polling for the rider.
   const routePoints = useRoutePoints(effectiveSessionId, {
@@ -681,11 +694,14 @@ export default function RoomScreen() {
         }
       >
         {isOwnLiveSession || isDriverMode ? (
-          <BroadcasterCameraPreview
-            liveSessionId={effectiveSessionId}
-            facing="back"
-            style={{ flex: 1 }}
-          />
+          <>
+            <BroadcasterCameraPreview
+              liveSessionId={effectiveSessionId}
+              facing="back"
+              style={{ flex: 1 }}
+            />
+            <LeadVehicleDebugOverlay />
+          </>
         ) : null}
       </View>
 
