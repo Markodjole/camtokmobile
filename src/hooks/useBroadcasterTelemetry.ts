@@ -91,14 +91,24 @@ export function useBroadcasterTelemetry(params: {
     async function ensureNativeLocationTask() {
       if (Platform.OS === "web") return;
       try {
-        const started = await startLiveLocationTask();
-        if (!started && !cancelled) {
+        const result = await startLiveLocationTask();
+        if (cancelled) return;
+        // Foreground watcher still works when the background task is
+        // unavailable / fails — only real FG denial is a hard error.
+        if (result === "no_permission") {
           onErrorRef.current?.("Location permission denied");
+        } else if (result === "failed" && __DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            "[mobile-live-telemetry] background location task failed; using foreground watcher",
+          );
         }
       } catch (e) {
-        if (!cancelled) {
-          onErrorRef.current?.(
-            e instanceof Error ? e.message : "Background location failed",
+        if (!cancelled && __DEV__) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            "[mobile-live-telemetry] background location error:",
+            e instanceof Error ? e.message : e,
           );
         }
       }

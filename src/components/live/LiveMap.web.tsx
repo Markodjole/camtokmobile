@@ -444,39 +444,21 @@ export function LiveMap({
         ref: containerRef,
         style: { width: "100%", height: "100%", background: "#111827" },
       })}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 8,
-          right: 8,
-          top: 8,
-          zIndex: 20,
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          gap: 6,
-        }}
-      >
-        {destinationRoute && destinationRoute.length > 1 ? (
-          <View
-            style={{
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "rgba(252,165,165,0.75)",
-              backgroundColor: "rgba(239,68,68,0.82)",
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              Suggested route
-            </Text>
-          </View>
-        ) : (
-          <View />
-        )}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", flex: 1, gap: 4, maxWidth: "72%" }}>
+      {(driverRouteBadges ?? []).length > 0 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 8,
+            right: 8,
+            top: 8,
+            zIndex: 20,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            gap: 4,
+          }}
+        >
           {(driverRouteBadges ?? []).map((label) => (
             <View
               key={label}
@@ -495,7 +477,7 @@ export function LiveMap({
             </View>
           ))}
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }

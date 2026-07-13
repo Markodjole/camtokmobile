@@ -86,31 +86,45 @@ export function isLiveLocationTaskAvailable(): boolean {
   return getTaskManager() != null;
 }
 
-export async function startLiveLocationTask(): Promise<boolean> {
-  if (!getTaskManager()) return false;
+export type LiveLocationTaskStartResult =
+  | "started"
+  | "no_permission"
+  | "unavailable"
+  | "failed";
+
+export async function startLiveLocationTask(): Promise<LiveLocationTaskStartResult> {
+  if (!getTaskManager()) return "unavailable";
 
   const fg = await Location.getForegroundPermissionsAsync();
-  if (fg.status !== "granted") return false;
+  if (fg.status !== "granted") return "no_permission";
 
-  const running = await Location.hasStartedLocationUpdatesAsync(LIVE_LOCATION_TASK);
-  if (running) return true;
+  try {
+    const running = await Location.hasStartedLocationUpdatesAsync(LIVE_LOCATION_TASK);
+    if (running) return "started";
 
-  await Location.requestBackgroundPermissionsAsync().catch(() => undefined);
+    await Location.requestBackgroundPermissionsAsync().catch(() => undefined);
 
-  await Location.startLocationUpdatesAsync(LIVE_LOCATION_TASK, {
-    accuracy: Location.Accuracy.Highest,
-    timeInterval: 450,
-    distanceInterval: 0,
-    pausesUpdatesAutomatically: false,
-    activityType: Location.ActivityType.AutomotiveNavigation,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: "CamTok live",
-      notificationBody: "Tracking your drive while broadcasting",
-      notificationColor: "#ef4444",
-    },
-  });
-  return true;
+    await Location.startLocationUpdatesAsync(LIVE_LOCATION_TASK, {
+      accuracy: Location.Accuracy.Highest,
+      timeInterval: 450,
+      distanceInterval: 0,
+      pausesUpdatesAutomatically: false,
+      activityType: Location.ActivityType.AutomotiveNavigation,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: "CamTok live",
+        notificationBody: "Tracking your drive while broadcasting",
+        notificationColor: "#ef4444",
+      },
+    });
+    return "started";
+  } catch (e) {
+    console.warn(
+      "[live-location-task] start failed:",
+      e instanceof Error ? e.message : e,
+    );
+    return "failed";
+  }
 }
 
 export async function stopLiveLocationTask() {

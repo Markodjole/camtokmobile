@@ -150,20 +150,38 @@ export async function resolveDestinationRoute(
     transportMode: opts.transportMode,
     signal: opts.signal,
   });
-  if (!osrm || osrm.polyline.length < 2) {
-    return { ...res, destination: dest };
+  if (osrm && osrm.polyline.length >= 2) {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log("[destination-route] osrm ok", osrm.polyline.length, "pts");
+    }
+    return {
+      ...res,
+      destination: dest,
+      route: { ...osrm, source: "osrm" as const },
+      source: "osrm" as const,
+      reason: "osrm_client",
+    };
   }
 
+  // Always show something when we have both ends (OSRM can be blocked/offline).
   if (__DEV__) {
     // eslint-disable-next-line no-console
-    console.log("[destination-route] osrm ok", osrm.polyline.length, "pts");
+    console.warn("[destination-route] osrm failed; using straight line");
   }
-
   return {
     ...res,
     destination: dest,
-    route: { ...osrm, source: "osrm" as const },
+    route: {
+      polyline: [
+        { lat: driver.lat, lng: driver.lng },
+        { lat: dest.lat, lng: dest.lng },
+      ],
+      distanceMeters: 0,
+      durationSec: 0,
+      source: "osrm" as const,
+    },
     source: "osrm" as const,
-    reason: "osrm_client",
+    reason: "straight_fallback",
   };
 }

@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Pressable, Text, View } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { AppState, Linking, PermissionsAndroid, Platform, Pressable, Text, View } from "react-native";
+import {
+  CameraView,
+  useCameraPermissions,
+  useMicrophonePermissions,
+} from "expo-camera";
 import { startBroadcasterP2p } from "@/lib/liveP2p.native";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
@@ -82,7 +86,8 @@ function WebRtcPreview({
   const setSession = useLiveBroadcastStore((s) => s.setSession);
   const setLocalStream = useLiveBroadcastStore((s) => s.setLocalStream);
   const transportMode = useLiveBroadcastStore((s) => s.transportMode);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const cleanupBroadcast = useRef<(() => void) | null>(null);
@@ -90,13 +95,35 @@ function WebRtcPreview({
   const useWide = TWO_WHEELED_MODES.has(transportMode);
 
   useEffect(() => {
-    if (permission && !permission.granted && permission.canAskAgain) {
-      void requestPermission();
-    }
-  }, [permission, requestPermission]);
+    void (async () => {
+      if (Platform.OS === "android") {
+        try {
+          await PermissionsAndroid.requestMultiple([
+            PermissionsAndroid.PERMISSIONS.CAMERA,
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          ]);
+        } catch {
+          // Fall through to expo-camera hooks.
+        }
+      }
+      if (cameraPermission && !cameraPermission.granted && cameraPermission.canAskAgain) {
+        await requestCameraPermission();
+      }
+      if (micPermission && !micPermission.granted && micPermission.canAskAgain) {
+        await requestMicPermission();
+      }
+    })();
+  }, [
+    cameraPermission,
+    micPermission,
+    requestCameraPermission,
+    requestMicPermission,
+  ]);
+
+  const mediaGranted = !!cameraPermission?.granted && !!micPermission?.granted;
 
   useEffect(() => {
-    if (!permission?.granted) return;
+    if (!mediaGranted) return;
     let active = true;
     let current: MediaStream | null = null;
     const start = async () => {
@@ -153,7 +180,7 @@ function WebRtcPreview({
       current?.getTracks().forEach((t) => t.stop?.());
       setStream(null);
     };
-  }, [facing, permission?.granted, runtime, useWide]);
+  }, [facing, mediaGranted, runtime, useWide]);
 
   // Push session id + local stream into the global broadcast store so the
   // room screen can render the broadcaster's own camera even if this preview
@@ -213,7 +240,28 @@ function WebRtcPreview({
 
   const streamURL = stream ? (stream as unknown as { toURL: () => string }).toURL() : null;
 
-  if (!permission) {
+  async function requestMediaPermissions() {
+    if (Platform.OS === "android") {
+      try {
+        await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        ]);
+      } catch {
+        // ignore
+      }
+    }
+    const cam = await requestCameraPermission();
+    const mic = await requestMicPermission();
+    const blocked =
+      (cam && !cam.granted && !cam.canAskAgain) ||
+      (mic && !mic.granted && !mic.canAskAgain);
+    if (blocked) {
+      await Linking.openSettings();
+    }
+  }
+
+  if (!cameraPermission || !micPermission) {
     return (
       <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }, style]}>
         <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Requesting camera…</Text>
@@ -221,14 +269,17 @@ function WebRtcPreview({
     );
   }
 
-  if (!permission.granted) {
+  if (!mediaGranted) {
+    const permanentlyDenied =
+      (!cameraPermission.granted && !cameraPermission.canAskAgain) ||
+      (!micPermission.granted && !micPermission.canAskAgain);
     return (
       <View style={[{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 16 }, style]}>
         <Text style={{ color: "white", fontSize: 13, textAlign: "center", marginBottom: 12 }}>
           Camera and microphone permissions are required to broadcast.
         </Text>
         <Pressable
-          onPress={() => void requestPermission()}
+          onPress={() => void requestMediaPermissions()}
           style={{
             paddingHorizontal: 14,
             paddingVertical: 8,
@@ -236,7 +287,9 @@ function WebRtcPreview({
             backgroundColor: "rgba(255,255,255,0.15)",
           }}
         >
-          <Text style={{ color: "white", fontSize: 12 }}>Grant permission</Text>
+          <Text style={{ color: "white", fontSize: 12 }}>
+            {permanentlyDenied ? "Open Settings" : "Grant permission"}
+          </Text>
         </Pressable>
       </View>
     );
@@ -313,11 +366,21 @@ function ExpoGoPreview({ liveSessionId, facing, style }: Props) {
         <Text style={{ color: "white", fontSize: 13, textAlign: "center", marginBottom: 12 }}>
           Camera permission is required to go live.
         </Text>
-        <Pressable onPress={() => void requestPermission()} style={{
+        <Pressable
+          onPress={() => {
+            if (!permission.canAskAgain) {
+              void Linking.openSettings();
+              return;
+            }
+            void requestPermission();
+          }}
+          style={{
           paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
           backgroundColor: "rgba(255,255,255,0.15)",
         }}>
-          <Text style={{ color: "white", fontSize: 12 }}>Grant permission</Text>
+          <Text style={{ color: "white", fontSize: 12 }}>
+            {permission.canAskAgain ? "Grant permission" : "Open Settings"}
+          </Text>
         </Pressable>
       </View>
     );

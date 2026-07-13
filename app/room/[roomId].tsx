@@ -7,6 +7,11 @@ import {
   View,
 } from "react-native";
 import * as Location from "expo-location";
+import {
+  activateKeepAwakeAsync,
+  deactivateKeepAwake,
+  isAvailableAsync as isKeepAwakeAvailableAsync,
+} from "expo-keep-awake";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
@@ -84,7 +89,8 @@ export default function RoomScreen() {
   const [betAmount, setBetAmount] = useState(10);
   // Keep map as the default fullscreen layer (web parity for room navigation in-app).
   const [mapExpanded, setMapExpanded] = useState(true);
-  const [mapFollow, setMapFollow] = useState(true);
+  // Free pan/zoom by default — follow mode fights gestures on Android.
+  const [mapFollow, setMapFollow] = useState(false);
   const [showZones, setShowZones] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
@@ -93,6 +99,25 @@ export default function RoomScreen() {
   const [mapResetKey, setMapResetKey] = useState(0);
   const isOwnLiveSession =
     !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
+
+  // Keep screen awake only while in a live room. Global useKeepAwake() throws
+  // "Unable to activate keep awake" on Android when the Activity isn't ready.
+  useEffect(() => {
+    const tag = "camtok-live-room";
+    let active = true;
+    void (async () => {
+      try {
+        if (!(await isKeepAwakeAvailableAsync()) || !active) return;
+        await activateKeepAwakeAsync(tag);
+      } catch {
+        // Non-fatal — Android can reject when Activity is inactive.
+      }
+    })();
+    return () => {
+      active = false;
+      void deactivateKeepAwake(tag).catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOwnLiveSession) {
@@ -592,7 +617,11 @@ export default function RoomScreen() {
       />
 
       {/* Top bar */}
-      <SafeAreaView edges={["top"]} style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 40 }}>
+      <SafeAreaView
+        edges={["top"]}
+        pointerEvents="box-none"
+        style={{ position: "absolute", left: 0, right: 0, top: 0, zIndex: 40 }}
+      >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
           <Pressable
             onPress={blurOnWeb(() => router.back())}
@@ -644,6 +673,7 @@ export default function RoomScreen() {
 
       {data.destination ? (
         <View
+          pointerEvents="none"
           style={{
             position: "absolute",
             left: 12,
@@ -713,12 +743,12 @@ export default function RoomScreen() {
         </View>
       ) : null}
       {mapExpanded && mapStale ? (
-        <View style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.15)", paddingHorizontal: 10, paddingVertical: 6 }}>
+        <View pointerEvents="none" style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.15)", paddingHorizontal: 10, paddingVertical: 6 }}>
           <Text style={{ color: "rgba(255,237,213,0.95)", fontSize: 11, textAlign: "center" }}>Map may be stuck — tap ↻ to refresh</Text>
         </View>
       ) : null}
       {mapExpanded && resolvedRoutePoints.length === 0 ? (
-        <View style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 6 }}>
+        <View pointerEvents="none" style={{ position: "absolute", left: 12, right: 56, top: 160, zIndex: 45, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 6 }}>
           <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, textAlign: "center" }}>Waiting for location…</Text>
         </View>
       ) : null}

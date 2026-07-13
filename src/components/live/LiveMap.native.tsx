@@ -6,7 +6,8 @@ import MapView, {
   PROVIDER_GOOGLE,
   type Region,
 } from "react-native-maps";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
+import { NativeViewGestureHandler } from "react-native-gesture-handler";
 import type { RoutePoint } from "@/types/live";
 import { metersBetween } from "@/lib/geo";
 
@@ -61,7 +62,13 @@ type Props = {
   onUserInteract?: () => void;
 };
 
-const NAV_ZOOM_DELTA = 0.0012;
+const NAV_ZOOM_DELTA = 0.008;
+const FALLBACK_REGION: Region = {
+  latitude: 44.8176,
+  longitude: 20.4633,
+  latitudeDelta: 0.04,
+  longitudeDelta: 0.04,
+};
 
 // ── Smoothing tuning ─────────────────────────────────────────────────────────
 //
@@ -203,26 +210,56 @@ function LiveMapInner({
   const hasSmoothedPoseRef = useRef(false);
   /** Apply followZoom once when follow starts; omit later so pinch-zoom sticks. */
   const forceFollowZoomRef = useRef(true);
+  /** Frame street-level camera once when the first GPS fix arrives. */
+  const hasFramedRef = useRef(false);
   const routePointsRef = useRef(routePoints);
   routePointsRef.current = routePoints;
   const driverRouteRef = useRef(driverRoute ?? null);
   driverRouteRef.current = driverRoute ?? null;
   const turnPinRef = useRef<{ lat: number; lng: number } | null>(null);
+  const followDriverRef = useRef(followDriver);
+  followDriverRef.current = followDriver;
+  const followZoomRef = useRef(followZoom);
+  followZoomRef.current = followZoom;
 
   const last = routePoints[routePoints.length - 1];
   const [smoothedLast, setSmoothedLast] = useState<RoutePoint | null>(
     last ?? null,
   );
 
-  const initialRegion = useMemo<Region | undefined>(() => {
-    if (!last) return undefined;
-    return {
-      latitude: last.lat,
-      longitude: last.lng,
-      latitudeDelta: NAV_ZOOM_DELTA,
-      longitudeDelta: NAV_ZOOM_DELTA,
+  function frameCamera(
+    lat: number,
+    lng: number,
+    opts?: { heading?: number; zoom?: number; animated?: boolean },
+  ) {
+    const zoom = opts?.zoom ?? followZoomRef.current;
+    const heading =
+      typeof opts?.heading === "number" && !Number.isNaN(opts.heading)
+        ? ((opts.heading % 360) + 360) % 360
+        : 0;
+    const camera = {
+      center: { latitude: lat, longitude: lng },
+      heading,
+      pitch: 0,
+      zoom,
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (opts?.animated === false) {
+      mapRef.current?.setCamera(camera);
+    } else {
+      mapRef.current?.animateCamera(camera, { duration: 450 });
+    }
+  }
+
+  // Seed a usable street-level view once we have a fix (follow off by default).
+  useEffect(() => {
+    if (!last || hasFramedRef.current) return;
+    hasFramedRef.current = true;
+    frameCamera(last.lat, last.lng, {
+      heading: last.heading,
+      zoom: followZoom,
+      animated: true,
+    });
+  }, [last?.lat, last?.lng, last?.heading, followZoom]);
 
   // Full reset of physics + camera (user refresh or parent recovery)
   useEffect(() => {
@@ -238,6 +275,7 @@ function LiveMapInner({
     lastPoseStateTsRef.current = 0;
     hasSmoothedPoseRef.current = false;
     turnPinRef.current = null;
+    hasFramedRef.current = false;
     setSmoothedLast(null);
     if (!pt) return;
     const now = Date.now();
@@ -255,30 +293,24 @@ function LiveMapInner({
     };
     cameraHeadingRef.current = rawHeading;
     setSmoothedLast({ lat: pt.lat, lng: pt.lng, heading: rawHeading });
-    if (followDriver) {
-      mapRef.current?.setCamera({
-        center: { latitude: pt.lat, longitude: pt.lng },
-        heading: ((rawHeading % 360) + 360) % 360,
-        pitch: 0,
-        altitude: 250,
-        zoom: followZoom,
-      });
-    }
-  }, [mapResetKey, followDriver, followZoom]);
+    hasFramedRef.current = true;
+    forceFollowZoomRef.current = true;
+    frameCamera(pt.lat, pt.lng, {
+      heading: rawHeading,
+      zoom: followZoom,
+      animated: false,
+    });
+  }, [mapResetKey, followZoom]);
 
   // When follow is re-enabled (recenter button), snap zoom back in once.
   useEffect(() => {
     if (!followDriver) return;
     forceFollowZoomRef.current = true;
     if (!last) return;
-    mapRef.current?.setCamera({
-      center: { latitude: last.lat, longitude: last.lng },
-      heading:
-        typeof last.heading === "number" && !Number.isNaN(last.heading)
-          ? ((last.heading % 360) + 360) % 360
-          : 0,
-      pitch: 0,
+    frameCamera(last.lat, last.lng, {
+      heading: last.heading,
       zoom: followZoom,
+      animated: true,
     });
     forceFollowZoomRef.current = false;
   }, [followDriver]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -446,7 +478,10 @@ function LiveMapInner({
           });
         }
 
-        if (followDriver && now - lastCameraTsRef.current > CAMERA_MIN_INTERVAL_MS) {
+        if (
+          followDriver &&
+          now - lastCameraTsRef.current > CAMERA_MIN_INTERVAL_MS
+        ) {
           if (lastCameraTsRef.current === 0) {
             cameraHeadingRef.current = newHeading;
           }
@@ -483,7 +518,7 @@ function LiveMapInner({
             center: { latitude: newLat, longitude: newLng },
             heading: ((camHeading % 360) + 360) % 360,
             pitch: 0,
-            ...(shouldForceZoom ? { zoom: followZoom } : {}),
+            ...(shouldForceZoom ? { zoom: followZoomRef.current } : {}),
           });
           if (shouldForceZoom) forceFollowZoomRef.current = false;
           lastCameraTsRef.current = now;
@@ -554,42 +589,52 @@ function LiveMapInner({
     [committedRouteAhead],
   );
 
-  const region: Region = {
-    latitude: last?.lat ?? 44.0,
-    longitude: last?.lng ?? 20.9,
-    latitudeDelta: last ? NAV_ZOOM_DELTA : 0.5,
-    longitudeDelta: last ? NAV_ZOOM_DELTA : 0.5,
-  };
+  const destinationCoords = useMemo(
+    () =>
+      (destinationRoute ?? []).map((p) => ({
+        latitude: p.lat,
+        longitude: p.lng,
+      })),
+    [destinationRoute],
+  );
 
-  return (
-    <View style={{ flex: 1 }}>
+  const region: Region = last
+    ? {
+        latitude: last.lat,
+        longitude: last.lng,
+        latitudeDelta: NAV_ZOOM_DELTA,
+        longitudeDelta: NAV_ZOOM_DELTA,
+      }
+    : FALLBACK_REGION;
+
+  const mapView = (
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
-        initialRegion={initialRegion ?? region}
+        initialRegion={region}
         showsUserLocation={false}
         showsCompass={false}
         toolbarEnabled={false}
         moveOnMarkerPress={false}
+        scrollEnabled
+        zoomEnabled
+        zoomControlEnabled={Platform.OS === "android"}
         rotateEnabled={false}
         pitchEnabled={false}
-        cacheEnabled
+        cacheEnabled={false}
         onPanDrag={onUserInteract}
         onMapReady={() => {
           if (__DEV__) {
             // eslint-disable-next-line no-console
             console.log("[LiveMap] Google MapView ready (native SDK tiles)");
           }
-          if (followDriver && last) {
-            mapRef.current?.setCamera({
-              center: { latitude: last.lat, longitude: last.lng },
-              heading:
-                typeof last.heading === "number" && !Number.isNaN(last.heading)
-                  ? ((last.heading % 360) + 360) % 360
-                  : 0,
-              pitch: 0,
+          if (last && !hasFramedRef.current) {
+            hasFramedRef.current = true;
+            frameCamera(last.lat, last.lng, {
+              heading: last.heading,
               zoom: followZoom,
+              animated: false,
             });
           }
         }}
@@ -597,8 +642,12 @@ function LiveMapInner({
         {historyCoords.length > 1 ? (
           <Polyline
             coordinates={historyCoords}
-            strokeColor="rgba(16,185,129,0.7)"
+            strokeColor="#10B981"
             strokeWidth={3}
+            zIndex={2}
+            lineCap="round"
+            lineJoin="round"
+            lineDashPattern={[0]}
           />
         ) : null}
 
@@ -630,8 +679,12 @@ function LiveMapInner({
         {showLine && !passedRailEnd && railCoords.length > 1 ? (
           <Polyline
             coordinates={railCoords}
-            strokeColor="rgba(59,130,246,0.8)"
+            strokeColor="#3B82F6"
             strokeWidth={5}
+            zIndex={3}
+            lineCap="round"
+            lineJoin="round"
+            lineDashPattern={[0]}
           />
         ) : null}
 
@@ -639,13 +692,21 @@ function LiveMapInner({
           <>
             <Polyline
               coordinates={committedCoords}
-              strokeColor="rgba(0,0,0,0.38)"
+              strokeColor="#000000"
               strokeWidth={11}
+              zIndex={4}
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
             />
             <Polyline
               coordinates={committedCoords}
-              strokeColor="#22c55e"
+              strokeColor="#22C55E"
               strokeWidth={7}
+              zIndex={5}
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
             />
           </>
         ) : null}
@@ -660,23 +721,27 @@ function LiveMapInner({
           />
         ) : null}
 
-        {destinationRoute && destinationRoute.length > 1 ? (
+        {destinationCoords.length > 1 ? (
           <>
             <Polyline
-              coordinates={destinationRoute.map((p) => ({
-                latitude: p.lat,
-                longitude: p.lng,
-              }))}
-              strokeColor="rgba(0,0,0,0.28)"
-              strokeWidth={9}
+              coordinates={destinationCoords}
+              strokeColor="#7F1D1D"
+              strokeWidth={10}
+              zIndex={6}
+              geodesic
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
             />
             <Polyline
-              coordinates={destinationRoute.map((p) => ({
-                latitude: p.lat,
-                longitude: p.lng,
-              }))}
-              strokeColor="rgba(239,68,68,0.94)"
+              coordinates={destinationCoords}
+              strokeColor="#EF4444"
               strokeWidth={6}
+              zIndex={7}
+              geodesic
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
             />
           </>
         ) : null}
@@ -697,6 +762,19 @@ function LiveMapInner({
           />
         ) : null}
       </MapView>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/*
+        GestureHandlerRootView steals pan/pinch from Google MapView on Android
+        unless MapView sits inside a NativeViewGestureHandler.
+      */}
+      <NativeViewGestureHandler disallowInterruption>
+        <View style={{ flex: 1 }} collapsable={false}>
+          {mapView}
+        </View>
+      </NativeViewGestureHandler>
 
       {smoothedLast && followDriver ? (
         <View
@@ -723,54 +801,21 @@ function LiveMapInner({
           />
         </View>
       ) : null}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 8,
-          right: 8,
-          top: 8,
-          zIndex: 11,
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          gap: 6,
-        }}
-      >
-        {destinationRoute && destinationRoute.length > 1 ? (
-          <View
-            style={{
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "rgba(252,165,165,0.75)",
-              backgroundColor: "rgba(239,68,68,0.82)",
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              Suggested route
-            </Text>
-          </View>
-        ) : committedCoords.length > 1 ? (
-          <View
-            style={{
-              borderRadius: 999,
-              borderWidth: 1,
-              borderColor: "rgba(134,239,172,0.75)",
-              backgroundColor: "rgba(34,197,94,0.88)",
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              Committed route
-            </Text>
-          </View>
-        ) : (
-          <View />
-        )}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", flex: 1, gap: 4, maxWidth: "72%" }}>
+      {(driverRouteBadges ?? []).length > 0 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 8,
+            right: 8,
+            top: 8,
+            zIndex: 11,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            gap: 4,
+          }}
+        >
           {(driverRouteBadges ?? []).map((label) => (
             <View
               key={label}
@@ -789,7 +834,7 @@ function LiveMapInner({
             </View>
           ))}
         </View>
-      </View>
+      ) : null}
     </View>
   );
 }

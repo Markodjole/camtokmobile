@@ -72,10 +72,20 @@ export function useDestinationRoute(
   destinationRef.current = opts?.destination ?? null;
   const transportMode = opts?.transportMode ?? null;
 
+  const hasDriver = !!opts?.driver;
+  const hasDestination = !!opts?.destination;
+
   return useQuery({
-    // Keep key stable — putting live GPS in the key aborted OSRM every few meters.
-    queryKey: ["destination-route", roomId, transportMode],
-    enabled: !!roomId,
+    // Keep lat/lng out of the key (avoids aborting OSRM every GPS tick),
+    // but flip when driver/destination first become available.
+    queryKey: [
+      "destination-route",
+      roomId,
+      transportMode,
+      hasDriver,
+      hasDestination,
+    ],
+    enabled: !!roomId && hasDestination,
     queryFn: async ({ signal }) => {
       const { resolveDestinationRoute } = await import("@/lib/osrmRoute");
       return resolveDestinationRoute(roomId!, {
