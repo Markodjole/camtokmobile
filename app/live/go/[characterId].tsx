@@ -393,7 +393,8 @@ export default function GoLiveControlScreen() {
             <View style={{ gap: 6 }}>
               <Text className="text-sm font-medium text-white">Destination</Text>
               <Text className="text-xs text-muted-foreground">
-                From Grab/Maps: Share place → CamTok. Or search below.
+                From Grab/Maps: Share place → CamTok. Tip: long-press CamTok in
+                the share list → Pin so it stays on top.
               </Text>
               {sharedFromMaps && destination ? (
                 <View

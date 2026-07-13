@@ -49,7 +49,7 @@
           ]
         }
       ],
-      "versionCode": 6
+      "versionCode": 7
     },
     "web": {
       "bundler": "metro",
@@ -89,7 +89,8 @@
       ],
       "expo-task-manager",
       "expo-web-browser",
-      "./plugins/withStreamTopCrop.js"
+      "./plugins/withStreamTopCrop.js",
+      "./plugins/withShareSheetBoost.js"
     ],
     "experiments": {
       "typedRoutes": true
