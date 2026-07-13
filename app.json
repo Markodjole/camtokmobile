@@ -90,6 +90,7 @@
       "expo-task-manager",
       "expo-web-browser",
       "./plugins/withStreamTopCrop.js",
+      "./plugins/withLeadVehicleDetect.js",
       "./plugins/withShareSheetBoost.js"
     ],
     "experiments": {

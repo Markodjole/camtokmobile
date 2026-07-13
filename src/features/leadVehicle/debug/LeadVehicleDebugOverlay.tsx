@@ -7,6 +7,8 @@ import { useLeadVehicleStore } from "../state/leadVehicle.store";
 type Props = {
   /** Absolute fill over the camera / map preview. */
   visible?: boolean;
+  /** boxes = detection rects; hud = text panel; full = both */
+  mode?: "full" | "boxes" | "hud";
 };
 
 /**
@@ -14,7 +16,10 @@ type Props = {
  * unless EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY=1.
  * Does not bake into the outgoing WebRTC stream.
  */
-export function LeadVehicleDebugOverlay({ visible = true }: Props) {
+export function LeadVehicleDebugOverlay({
+  visible = true,
+  mode = "full",
+}: Props) {
   const enabled = leadVehicleDebugOverlayEnabled();
   const status = useLeadVehicleStore((s) => s.status);
   const lead = useLeadVehicleStore((s) => s.leadVehicle);
@@ -26,6 +31,9 @@ export function LeadVehicleDebugOverlay({ visible = true }: Props) {
   const corridor = useLeadVehicleStore((s) => s.corridor);
 
   if (!enabled || !visible) return null;
+
+  const showBoxes = mode === "full" || mode === "boxes";
+  const showHud = mode === "full" || mode === "hud";
 
   return (
     <View
@@ -39,73 +47,78 @@ export function LeadVehicleDebugOverlay({ visible = true }: Props) {
         zIndex: 50,
       }}
     >
-      <CorridorOutline corridor={corridor} />
-      {detections.map((d, i) => (
-        <Box
-          key={`det-${i}`}
-          box={d.boundingBox}
-          color="rgba(250,204,21,0.85)"
-          label={`${d.vehicleType} ${(d.confidence * 100).toFixed(0)}%`}
-        />
-      ))}
-      {tracks.map((t) => {
-        const isLead = lead?.trackId === t.trackId;
-        return (
-          <Box
-            key={t.trackId}
-            box={t.boundingBox}
-            color={isLead ? "rgba(34,197,94,0.95)" : "rgba(96,165,250,0.8)"}
-            label={`${t.trackId} ${t.vehicleType}`}
-            thick={isLead}
-          />
-        );
-      })}
-      <View
-        style={{
-          position: "absolute",
-          left: 8,
-          top: 8,
-          maxWidth: "92%",
-          borderRadius: 10,
-          backgroundColor: "rgba(0,0,0,0.72)",
-          paddingHorizontal: 10,
-          paddingVertical: 8,
-          gap: 2,
-        }}
-      >
-        <Text style={line}>state: {status}</Text>
-        <Text style={line}>
-          fps {metrics.inferenceFps.toFixed(1)} · infer{" "}
-          {metrics.averageInferenceDurationMs.toFixed(0)}ms · drop{" "}
-          {metrics.droppedAnalysisFrames} · tracks {metrics.trackerCount}
-        </Text>
-        {lead ? (
-          <>
-            <Text style={line}>
-              lead {lead.trackId} · {lead.vehicleType} · {lead.relativeState}
-            </Text>
-            <Text style={line}>
-              conf {lead.confidence.toFixed(2)} · sameDir{" "}
-              {lead.sameDirectionConfidence.toFixed(2)} · corridor{" "}
-              {lead.corridorConfidence.toFixed(2)}
-            </Text>
-            {score ? (
-              <Text style={line}>score {score.totalScore.toFixed(2)}</Text>
-            ) : null}
-          </>
-        ) : (
-          <Text style={line}>lead: none</Text>
-        )}
-        <Text style={line}>
-          prediction {readiness.ready ? "READY" : "blocked"} (
-          {readiness.confidence.toFixed(2)})
-        </Text>
-        {readiness.blockers.length > 0 ? (
-          <Text style={line}>blockers: {readiness.blockers.join(", ")}</Text>
-        ) : (
-          <Text style={line}>reasons: {readiness.reasons.join(", ")}</Text>
-        )}
-      </View>
+      {showBoxes ? (
+        <>
+          <CorridorOutline corridor={corridor} />
+          {detections.map((d, i) => (
+            <Box
+              key={`det-${i}`}
+              box={d.boundingBox}
+              color="rgba(250,204,21,0.85)"
+              label={`${d.vehicleType} ${(d.confidence * 100).toFixed(0)}%`}
+            />
+          ))}
+          {tracks.map((t) => {
+            const isLead = lead?.trackId === t.trackId;
+            return (
+              <Box
+                key={t.trackId}
+                box={t.boundingBox}
+                color={isLead ? "rgba(34,197,94,0.95)" : "rgba(96,165,250,0.8)"}
+                label={`${t.trackId} ${t.vehicleType}`}
+                thick={isLead}
+              />
+            );
+          })}
+        </>
+      ) : null}
+      {showHud ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 8,
+            top: 8,
+            maxWidth: "92%",
+            borderRadius: 10,
+            backgroundColor: "rgba(0,0,0,0.78)",
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+            gap: 2,
+          }}
+        >
+          <Text style={line}>
+            lead-vehicle · {status}
+            {metrics.inferenceFps > 0
+              ? ` · ${metrics.inferenceFps.toFixed(1)} fps`
+              : " · waiting…"}
+          </Text>
+          <Text style={line}>
+            tracks {metrics.trackerCount} · drop {metrics.droppedAnalysisFrames}
+          </Text>
+          {lead ? (
+            <>
+              <Text style={line}>
+                lead {lead.trackId} · {lead.vehicleType} · {lead.relativeState}
+              </Text>
+              <Text style={line}>
+                conf {lead.confidence.toFixed(2)} · sameDir{" "}
+                {lead.sameDirectionConfidence.toFixed(2)}
+                {score ? ` · score ${score.totalScore.toFixed(2)}` : ""}
+              </Text>
+            </>
+          ) : (
+            <Text style={line}>lead: none (mock will spawn a car ~1s)</Text>
+          )}
+          <Text style={line}>
+            prediction {readiness.ready ? "READY" : "blocked"}
+            {readiness.blockers.length > 0
+              ? ` · ${readiness.blockers.join(", ")}`
+              : readiness.reasons.length > 0
+                ? ` · ${readiness.reasons.join(", ")}`
+                : ""}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

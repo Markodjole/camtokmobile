@@ -62,27 +62,29 @@ export function AppBottomBar() {
 
   const items: NavItem[] = [
     {
-      label: "Driver",
-      icon: "＋",
-      isActive: (path) =>
-        path.startsWith("/live/go") ||
-        path.startsWith("/room/") ||
-        !!activeBroadcastSessionId ||
-        (!path.startsWith("/wallet") && !path.startsWith("/profile")),
-      onPress: () => router.push("/live/go"),
-    },
-    {
-      label: "Wallet",
-      icon: "$",
-      isActive: (path) => path.startsWith("/wallet"),
-      onPress: () => router.push("/(tabs)/wallet"),
-    },
-    {
       label: "Profile",
       icon: "☺",
       iconName: "person-outline",
       isActive: (path) => path.startsWith("/profile"),
       onPress: () => router.push("/(tabs)/profile"),
+    },
+    {
+      label: "Home",
+      icon: "＋",
+      iconName: "home-outline",
+      isActive: (path) =>
+        path.startsWith("/live/go") ||
+        (!!activeBroadcastSessionId && path.startsWith("/room/")) ||
+        (!path.startsWith("/wallet") &&
+          !path.startsWith("/profile") &&
+          !path.startsWith("/room/")),
+      onPress: () => router.push("/live/go"),
+    },
+    {
+      label: "$",
+      icon: "$",
+      isActive: (path) => path.startsWith("/wallet"),
+      onPress: () => router.push("/(tabs)/wallet"),
     },
   ];
 

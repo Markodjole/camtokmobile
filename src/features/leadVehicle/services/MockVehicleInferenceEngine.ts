@@ -17,9 +17,13 @@ type MockPhase =
   | "moto_takeover"
   | "moto_lost";
 
+/** Loop length — scenario repeats so demo never sticks on "no lead". */
+export const MOCK_SCENARIO_CYCLE_MS = 14_000;
+
 /**
  * Deterministic mock detector for UI / event / backend integration without
- * a native model. Scenario advances on wall-clock time from initialize().
+ * a native model. Scenario advances on wall-clock time from initialize()
+ * and loops forever.
  */
 export class MockVehicleInferenceEngine implements VehicleInferenceEngine {
   private status: VehicleInferenceStatus = "uninitialized";
@@ -43,8 +47,8 @@ export class MockVehicleInferenceEngine implements VehicleInferenceEngine {
       };
     }
 
-    this.scenarioMs = input.timestampMs - this.startedAtMs;
-    if (this.scenarioMs < 0) this.scenarioMs = Date.now() - this.startedAtMs;
+    const elapsed = Math.max(0, input.timestampMs - this.startedAtMs);
+    this.scenarioMs = elapsed % MOCK_SCENARIO_CYCLE_MS;
 
     const phase = phaseAt(this.scenarioMs);
     const detections = detectionsForPhase(phase, this.scenarioMs);
@@ -65,22 +69,24 @@ export class MockVehicleInferenceEngine implements VehicleInferenceEngine {
     return this.status;
   }
 
-  /** Test helper: force scenario clock. */
+  /** Test helper: force scenario clock (within one cycle). */
   setScenarioElapsedMs(ms: number): void {
-    this.scenarioMs = ms;
-    this.startedAtMs = Date.now() - ms;
+    this.scenarioMs = ((ms % MOCK_SCENARIO_CYCLE_MS) + MOCK_SCENARIO_CYCLE_MS) %
+      MOCK_SCENARIO_CYCLE_MS;
+    this.startedAtMs = Date.now() - this.scenarioMs;
   }
 }
 
 function phaseAt(ms: number): MockPhase {
-  if (ms < 800) return "empty";
-  if (ms < 1800) return "car_enter";
+  if (ms < 400) return "empty";
+  if (ms < 1400) return "car_enter";
   if (ms < 4500) return "car_stable";
   if (ms < 5500) return "car_left";
   if (ms < 6200) return "car_occluded";
   if (ms < 8500) return "car_return";
-  if (ms < 12000) return "moto_takeover";
-  return "moto_lost";
+  if (ms < 11_500) return "moto_takeover";
+  if (ms < 13_000) return "moto_lost";
+  return "car_stable"; // soft land before loop reset
 }
 
 function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
@@ -90,11 +96,11 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
     case "moto_lost":
       return [];
     case "car_enter": {
-      const t = (ms - 800) / 1000;
+      const t = (ms - 400) / 1000;
       return [
         {
           vehicleType: "car",
-          confidence: 0.55 + t * 0.2,
+          confidence: Math.min(0.95, 0.6 + t * 0.25),
           boundingBox: {
             x: 0.46,
             y: 0.42 - t * 0.02,
@@ -108,7 +114,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
       return [
         {
           vehicleType: "car",
-          confidence: 0.88,
+          confidence: 0.9,
           boundingBox: { x: 0.44, y: 0.4, width: 0.14, height: 0.18 },
         },
       ];
@@ -131,7 +137,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
       return [
         {
           vehicleType: "car",
-          confidence: 0.82,
+          confidence: 0.85,
           boundingBox: { x: 0.45, y: 0.41, width: 0.13, height: 0.17 },
         },
       ];
@@ -144,7 +150,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
         },
         {
           vehicleType: "motorcycle",
-          confidence: 0.86,
+          confidence: 0.9,
           boundingBox: { x: 0.46, y: 0.38, width: 0.1, height: 0.16 },
         },
       ];

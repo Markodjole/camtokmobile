@@ -16,6 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "download:lead-vehicle-model": "node scripts/download-lead-vehicle-model.mjs",
+    "eas-build-pre-install": "node scripts/download-lead-vehicle-model.mjs",
     "postinstall": "patch-package"
   },
   "dependencies": {

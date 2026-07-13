@@ -1,5 +1,6 @@
 package com.camtok.mobile.streamcrop;
 
+import com.camtok.mobile.leadvehicle.LeadVehicleFrameAnalyzer;
 import com.oney.WebRTCModule.videoEffects.VideoFrameProcessor;
 
 import org.webrtc.SurfaceTextureHelper;
@@ -10,6 +11,9 @@ import org.webrtc.VideoFrame;
  * On phones the buffer is often landscape with rotation 90/270 — cropping buffer
  * height would trim the wide horizontal FOV, so we crop the buffer axis that maps
  * to display height instead.
+ *
+ * When lead-vehicle detection is enabled, runs TFLite on the cropped outgoing frame
+ * off-thread (never opens a second camera).
  */
 public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
     private static final float TOP_FRACTION = 0.4f;
@@ -58,6 +62,8 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
 
         VideoFrame.Buffer cropped = buffer.cropAndScale(
                 offsetX, offsetY, cropWidth, cropHeight, outWidth, outHeight);
-        return new VideoFrame(cropped, rotation, frame.getTimestampNs());
+        VideoFrame out = new VideoFrame(cropped, rotation, frame.getTimestampNs());
+        LeadVehicleFrameAnalyzer.getInstance().maybeAnalyze(out);
+        return out;
     }
 }

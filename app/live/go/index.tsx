@@ -1,9 +1,8 @@
 import React, { useEffect, useRef } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
-import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 
 /**
@@ -29,27 +28,19 @@ export default function GoLivePickerScreen() {
     <Screen>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View className="mb-2 flex-row items-center gap-3">
-        <Pressable
-          onPress={blurOnWeb(() => router.back())}
-          className="h-9 w-9 items-center justify-center rounded-full bg-muted"
-        >
-          <Text className="text-white">‹</Text>
-        </Pressable>
-        <View className="flex-1">
-          <Text className="text-2xl font-bold text-white">Go live</Text>
-          <Text className="text-sm text-muted-foreground">
-            Starting your ride…
+      <View className="mb-2 flex-1">
+        <Text className="text-2xl font-bold text-white">Go live</Text>
+        <Text className="text-sm text-muted-foreground">
+          Starting your ride…
+        </Text>
+        {lastError ? (
+          <Text className="mt-1 text-xs text-amber-300">{lastError}</Text>
+        ) : null}
+        {pending ? (
+          <Text className="mt-1 text-xs text-emerald-300">
+            Destination ready: {pending.label}
           </Text>
-          {lastError ? (
-            <Text className="mt-1 text-xs text-amber-300">{lastError}</Text>
-          ) : null}
-          {pending ? (
-            <Text className="mt-1 text-xs text-emerald-300">
-              Destination ready: {pending.label}
-            </Text>
-          ) : null}
-        </View>
+        ) : null}
       </View>
 
       {isLoading || (data && data.length > 0 && !error) ? (

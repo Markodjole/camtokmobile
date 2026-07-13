@@ -36,3 +36,7 @@ yarn-error.*
 
 expo-env.d.ts
 # @end expo-cli
+# models
+
+# Large TFLite weights (download via scripts/download-lead-vehicle-model.mjs)
+assets/models/*.tflite

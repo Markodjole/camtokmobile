@@ -15,7 +15,7 @@ export class LeadVehicleTelemetryClient {
     private opts: {
       enabled: boolean;
       includeBoundingBoxes: boolean;
-      inferenceMode: InferenceMode;
+      inferenceMode: InferenceMode | (() => InferenceMode);
       riderId: string;
       modelName?: string;
       modelVersion?: string;
@@ -28,9 +28,17 @@ export class LeadVehicleTelemetryClient {
     },
   ) {}
 
+  private inferenceMode(): InferenceMode {
+    const m = this.opts.inferenceMode;
+    return typeof m === "function" ? m() : m;
+  }
+
   async publish(event: LeadVehicleEvent): Promise<void> {
     if (!this.opts.enabled) return;
-    const mapped = mapEvent(event, this.opts);
+    const mapped = mapEvent(event, {
+      ...this.opts,
+      inferenceMode: this.inferenceMode(),
+    });
     if (!mapped) return;
     const readiness = this.opts.getPredictionReadiness?.() ?? null;
     if (readiness) {

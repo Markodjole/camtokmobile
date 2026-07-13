@@ -6,10 +6,10 @@ import type {
 } from "./leadVehicle.types";
 
 export const DEFAULT_LEAD_VEHICLE_MODEL_CONFIG: LeadVehicleModelConfig = {
-  modelName: "mock-coco-vehicles",
-  modelVersion: "0.1.0-mock",
-  inputWidth: 320,
-  inputHeight: 320,
+  modelName: "coco_ssd_mobilenet_v1",
+  modelVersion: "1.0_quant_2018_06_29",
+  inputWidth: 300,
+  inputHeight: 300,
   minimumDetectionConfidence: 0.4,
   supportedClasses: [
     "car",

@@ -4,26 +4,55 @@ import type {
   VehicleInferenceStatus,
 } from "../domain/leadVehicle.types";
 import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
+import {
+  leadVehicleNativeIsAvailable,
+  leadVehicleNativePresent,
+  leadVehicleNativeSetEnabled,
+  mapNativeDetections,
+  subscribeLeadVehicleDetections,
+} from "@/lib/leadVehicleNative";
+
+export type OnDeviceFrameHandler = (result: VehicleFrameResult) => void;
 
 /**
- * On-device inference placeholder.
+ * On-device vehicle inference via the WebRTC VideoFrameProcessor path
+ * (same camera as the live stream — never opens a second session).
  *
- * Production path: extend the existing WebRTC `VideoFrameProcessor`
- * (same pattern as `native/stream-top-crop`) so frames are never
- * base64-bridged and the camera is not opened twice.
- *
- * Until the native TFLite / Core ML plugin is shipped, this engine
- * reports `unsupported` and returns no detections — live streaming
- * continues unaffected.
+ * Native TFLite runs in `LeadVehicleFrameAnalyzer` and emits
+ * `LeadVehicleDetections`; this engine forwards them into the pipeline.
  */
 export class OnDeviceVehicleInferenceEngine implements VehicleInferenceEngine {
   private status: VehicleInferenceStatus = "uninitialized";
+  private unsubscribe: (() => void) | null = null;
+  private handler: OnDeviceFrameHandler | null = null;
+  private frameId = 0;
+
+  /** Pipeline registers this so native detection frames drive tracking. */
+  attachFrameHandler(handler: OnDeviceFrameHandler): void {
+    this.handler = handler;
+  }
 
   async initialize(): Promise<void> {
-    this.status = "unsupported";
+    if (!leadVehicleNativePresent()) {
+      this.status = "unsupported";
+      return;
+    }
+    const available = await leadVehicleNativeIsAvailable();
+    if (!available) {
+      this.status = "unsupported";
+      return;
+    }
+    await leadVehicleNativeSetEnabled(true);
+    this.unsubscribe = subscribeLeadVehicleDetections((payload) => {
+      this.frameId += 1;
+      const result = mapNativeDetections(payload, this.frameId);
+      this.handler?.(result);
+    });
+    this.status = "ready";
   }
 
   async processFrame(input: VehicleFrameInput): Promise<VehicleFrameResult> {
+    // Frames are pushed from native; processFrame is unused for on_device.
     return {
       frameId: input.frameId,
       timestampMs: input.timestampMs,
@@ -33,6 +62,16 @@ export class OnDeviceVehicleInferenceEngine implements VehicleInferenceEngine {
   }
 
   async dispose(): Promise<void> {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.handler = null;
+    try {
+      if (leadVehicleNativePresent()) {
+        await leadVehicleNativeSetEnabled(false);
+      }
+    } catch {
+      // ignore
+    }
     this.status = "disposed";
   }
 

@@ -28,27 +28,19 @@ This is **not** ANPR / plate OCR / facial recognition. Temporary session track I
 
 ## Selected inference approach (v1)
 
-1. **Default: `mock`** — deterministic scenario engine for UI, events, scoring, and backend contract testing without a model.
-2. **`remote`** — stub client with rate limits / out-of-order discard; HTTP no-op until camtok adds `POST .../lead-vehicle/infer`.
-3. **`on_device`** — stub reporting `unsupported` until a TFLite (Android) / Core ML (iOS) processor is shipped beside stream-top-crop.
+1. **`on_device` (default)** — COCO SSD MobileNet TFLite on the WebRTC frame processor (same camera as the stream). Android is live after a dev-client rebuild; iOS reports unavailable until TensorFlowLiteObjC is linked.
+2. **`mock`** — deterministic scenario engine for UI / CI without a camera or model.
+3. **`remote`** — stub client with rate limits; HTTP no-op until camtok adds `POST .../lead-vehicle/infer`.
+
+If `on_device` is unavailable in the binary, the pipeline **falls back to mock** so go-live still works.
 
 Public interface is identical for all three: `VehicleInferenceEngine`.
 
-### Why this order
+## Native dependencies
 
-- No ML runtime is in the app yet; wiring TFLite/Core ML safely needs a dedicated native plugin + model licensing review.
-- Betting / engine work on **camtok web** can proceed against mock + REST telemetry events immediately.
-- Live stream must never break if analysis fails.
-
-## Native dependencies added
-
-**None for inference in this milestone.** Vitest added as a devDependency for unit tests.
-
-Planned (not installed yet):
-
-- Android: TensorFlow Lite (or ONNX Runtime Mobile) + exported COCO-style vehicle model
-- iOS: Core ML conversion of the same model
-- License of the chosen weights must be documented before shipping (prefer Apache-2.0 / MIT COCO-trained exports; avoid GPL weights if distribution terms conflict)
+- Expo plugin `plugins/withLeadVehicleDetect.js` copies `native/lead-vehicle/` into prebuild, registers `LeadVehiclePackage`, and adds `org.tensorflow:tensorflow-lite:2.14.0`.
+- Model: `yarn download:lead-vehicle-model` → `assets/models/coco_ssd_mobilenet_v1.tflite` (gitignored; Apache-2.0 TensorFlow Lite example weights).
+- Frame hook: `TopCropVideoFrameProcessor` crops then calls `LeadVehicleFrameAnalyzer.maybeAnalyze` off-thread (~8 FPS).
 
 ## Module layout
 
@@ -61,17 +53,18 @@ src/features/leadVehicle/
   config/     feature flags
   debug/      LeadVehicleDebugOverlay
   tests/      vitest unit + integration
+native/lead-vehicle/
+  android/    TFLite analyzer + RN module
+  ios/        RN bridge (interpreter follow-up)
 ```
 
 ## How frames are accessed (v1)
 
 | Mode | Frame source |
 |------|----------------|
+| on_device | WebRTC `VideoFrameProcessor` → TFLite → `LeadVehicleDetections` JS events |
 | mock | Timer at ~8 FPS inside `LeadVehiclePipeline` (no camera pixels) |
 | remote | Stub — would send reduced frames later; currently returns empty detections |
-| on_device | Stub — native processor not wired; returns empty / `unsupported` |
-
-`LeadVehiclePipeline.ingestFrame()` is the single entry for future native callbacks.
 
 ## Feature flags
 
@@ -81,22 +74,28 @@ src/features/leadVehicle/
 | (unset in `__DEV__`) | Tracking enabled by default in development |
 | `EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY=1` | Force debug overlay |
 | (unset in `__DEV__`) | Overlay on in development |
-| `EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock\|on_device\|remote` | Engine selection (default `mock`) |
+| `EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock\|on_device\|remote` | Engine selection (default `on_device`) |
 | `EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1` | Force remote engine |
 | `EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY=1` | POST events to camtok REST |
 
-## Enable / mock / overlay
+## Enable on-device
 
 ```bash
+# Download weights (once)
+yarn download:lead-vehicle-model
+
 # .env
 EXPO_PUBLIC_LEAD_VEHICLE_TRACKING=1
 EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY=1
-EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock
-# When camtok endpoint exists:
+EXPO_PUBLIC_LEAD_VEHICLE_MODE=on_device
 EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY=1
-```
 
-Go live as a rider → room screen starts `useLeadVehicleTracking` and shows the debug overlay in dev.
+# Native rebuild required (Metro alone is not enough)
+npx expo prebuild --clean
+npx expo run:android --device
+# then
+npx expo start --dev-client --lan
+```
 
 ## Backend contract (camtok) — implemented
 
@@ -117,11 +116,10 @@ Camtok:
 
 ## Next engineering steps
 
-1. Apply migration `00065_lead_vehicle_events_and_overtake_market.sql` (local + remote)
-2. Deploy camtok web so the new API route is live
-3. Reload mobile with telemetry env set; go live; watch mock lead acquire → market open on web
-4. Later: native on-device detector via WebRTC `VideoFrameProcessor`
-5. Tune overtake settlement with real road data
+1. Rebuild Android dev client with TFLite plugin; road-test lead boxes on real traffic
+2. Link TensorFlowLiteObjC (or Core ML) on iOS and flip `LeadVehicleFrameAnalyzer` to ready
+3. Tune corridor / confidence thresholds from road captures
+4. Harden overtake settlement with real lost/overtake signals
 
 ## Privacy
 

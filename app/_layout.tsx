@@ -55,9 +55,8 @@ function AuthGate() {
     return <Redirect href="/live/go" />;
   }
 
-  // Fullscreen screens manage their own chrome
-  const isFullscreen =
-    pathname.startsWith("/room/") || pathname.startsWith("/live/go/");
+  // Fullscreen room owns its own chrome; go-live uses app top/bottom bars.
+  const isFullscreen = pathname.startsWith("/room/");
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -77,10 +76,10 @@ function AuthGate() {
             name="room/[roomId]"
             options={{ presentation: "fullScreenModal" }}
           />
-          <Stack.Screen name="live/go/index" options={{ presentation: "modal" }} />
+          <Stack.Screen name="live/go/index" options={{ presentation: "card" }} />
           <Stack.Screen
             name="live/go/[characterId]"
-            options={{ presentation: "fullScreenModal" }}
+            options={{ presentation: "card" }}
           />
         </Stack>
       </View>

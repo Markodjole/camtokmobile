@@ -3,8 +3,24 @@
 #import <WebRTC/RTCVideoCapturer.h>
 #import <WebRTC/RTCVideoFrame.h>
 #import <WebRTC/RTCVideoFrameBuffer.h>
+#import <objc/message.h>
 
 static const float kTopFraction = 0.4f;
+
+static void LeadVehicleMaybeAnalyze(RTCVideoFrame *frame) {
+    Class cls = NSClassFromString(@"LeadVehicleFrameAnalyzer");
+    if (cls == Nil) {
+        return;
+    }
+    id shared = ((id(*)(id, SEL))objc_msgSend)(cls, NSSelectorFromString(@"shared"));
+    if (shared == nil) {
+        return;
+    }
+    SEL sel = NSSelectorFromString(@"maybeAnalyzeFrame:");
+    if ([shared respondsToSelector:sel]) {
+        ((void(*)(id, SEL, id))objc_msgSend)(shared, sel, frame);
+    }
+}
 
 @implementation TopCropVideoFrameProcessor
 
@@ -50,9 +66,11 @@ static const float kTopFraction = 0.4f;
                       scaleWidth:outWidth
                      scaleHeight:outHeight];
 
-    return [[RTCVideoFrame alloc] initWithBuffer:cropped
-                                        rotation:rotation
-                                     timeStampNs:frame.timeStampNs];
+    RTCVideoFrame *out = [[RTCVideoFrame alloc] initWithBuffer:cropped
+                                                      rotation:rotation
+                                                   timeStampNs:frame.timeStampNs];
+    LeadVehicleMaybeAnalyze(out);
+    return out;
 }
 
 @end

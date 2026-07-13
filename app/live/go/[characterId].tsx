@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/Input";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { apiFetch } from "@/lib/api";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
-import { blurOnWeb } from "@/lib/blurOnWeb";
 import {
   resolvePlaceSuggestion,
   searchDestinationPlaces,
@@ -358,12 +357,6 @@ export default function GoLiveControlScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       <View className="flex-row items-center gap-3 px-4 pt-2">
-        <Pressable
-          onPress={blurOnWeb(() => router.back())}
-          className="h-9 w-9 items-center justify-center rounded-full bg-muted"
-        >
-          <Text className="text-white">‹</Text>
-        </Pressable>
         <View className="flex-1">
           <Text className="text-xl font-bold text-white">Go live</Text>
           {characterName ? (

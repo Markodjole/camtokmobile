@@ -29,6 +29,7 @@ import { createVehicleInferenceEngine } from "./createVehicleInferenceEngine";
 import { LeadVehicleEventEmitter } from "./LeadVehicleEventEmitter";
 import { LeadVehicleTelemetryClient } from "./LeadVehicleTelemetryClient";
 import { LeadVehicleTracker } from "./LeadVehicleTracker";
+import { OnDeviceVehicleInferenceEngine } from "./OnDeviceVehicleInferenceEngine";
 
 export type LeadVehiclePipelineOptions = {
   rideId: string;
@@ -94,7 +95,7 @@ export class LeadVehiclePipeline {
     this.telemetry = new LeadVehicleTelemetryClient({
       enabled: opts.telemetryEnabled === true,
       includeBoundingBoxes: opts.includeBoundingBoxes !== false,
-      inferenceMode: opts.inferenceMode,
+      inferenceMode: () => this.opts.inferenceMode,
       riderId: opts.riderId,
       getPredictionReadiness: () => {
         const snap = this.getSnapshot();
@@ -119,6 +120,19 @@ export class LeadVehiclePipeline {
     this.telemetrySnap = snap;
   }
 
+  private effectiveTelemetry(): RiderTelemetrySnapshot | undefined {
+    const t = this.telemetrySnap;
+    // Mock demos often have 0 GPS speed while stationary — seed a cruise
+    // speed so prediction readiness can clear "rider_too_slow".
+    if (this.opts.inferenceMode === "mock") {
+      const speed = t?.speedMetersPerSecond;
+      if (speed == null || speed < 1) {
+        return { ...t, speedMetersPerSecond: 5.5 };
+      }
+    }
+    return t;
+  }
+
   async start(): Promise<void> {
     if (this.status !== "idle" && this.status !== "stopped" && this.status !== "error") {
       return;
@@ -138,6 +152,21 @@ export class LeadVehiclePipeline {
       await this.engine.initialize();
       const st = this.engine.getStatus();
       if (st === "unsupported") {
+        if (this.opts.inferenceMode === "on_device") {
+          // Dev client / iOS without linked TFLite → keep UX working via mock.
+          console.warn(
+            "[leadVehicle] on_device unavailable in this build; falling back to mock",
+          );
+          this.engine = createVehicleInferenceEngine("mock");
+          await this.engine.initialize();
+          this.opts = { ...this.opts, inferenceMode: "mock" };
+          this.status = "warming_up";
+          this.notify();
+          this.status = "searching";
+          this.notify();
+          this.startMockPump();
+          return;
+        }
         this.status = "error";
         this.error = new Error(
           "On-device vehicle inference is not available on this build yet",
@@ -150,6 +179,20 @@ export class LeadVehiclePipeline {
       // Warm-up → searching
       this.status = "searching";
       this.notify();
+
+      if (this.engine instanceof OnDeviceVehicleInferenceEngine) {
+        this.engine.attachFrameHandler((result) => {
+          this.inferenceDurations.push(result.inferenceDurationMs);
+          if (this.inferenceDurations.length > 30) this.inferenceDurations.shift();
+          this.inferenceTimes.push(result.timestampMs);
+          if (this.inferenceTimes.length > 30) this.inferenceTimes.shift();
+          void this.applyDetections(
+            result.detections,
+            result.timestampMs,
+            result.inferenceDurationMs,
+          );
+        });
+      }
 
       if (this.opts.inferenceMode === "mock") {
         this.startMockPump();
@@ -208,7 +251,7 @@ export class LeadVehiclePipeline {
       width: DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.inputWidth,
       height: DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.inputHeight,
       rotationDegrees: 0,
-      riderTelemetry: this.telemetrySnap,
+      riderTelemetry: this.effectiveTelemetry(),
       ...partial,
     };
     if (this.busy) {
@@ -235,7 +278,7 @@ export class LeadVehiclePipeline {
       predictionReadiness: computePredictionReadiness(
         leadVehicle,
         this.status,
-        this.telemetrySnap,
+        this.effectiveTelemetry(),
       ),
       metrics: this.metrics(),
       scoreBreakdown: this.lastScore,
@@ -315,7 +358,7 @@ export class LeadVehiclePipeline {
     for (const track of mature) {
       const breakdown = scoreLeadVehicle(track, {
         corridor: this.corridor,
-        telemetry: this.telemetrySnap,
+        telemetry: this.effectiveTelemetry(),
       });
       if (breakdown.totalScore > bestScore) {
         bestScore = breakdown.totalScore;
@@ -332,7 +375,7 @@ export class LeadVehiclePipeline {
     const currentLeadScore = currentLead
       ? scoreLeadVehicle(currentLead, {
           corridor: this.corridor,
-          telemetry: this.telemetrySnap,
+          telemetry: this.effectiveTelemetry(),
         }).totalScore
       : 0;
 
@@ -414,11 +457,11 @@ export class LeadVehiclePipeline {
   ): LeadVehicleSnapshot {
     const sameDirectionConfidence = estimateSameDirectionConfidence(
       track,
-      this.telemetrySnap,
+      this.effectiveTelemetry(),
     );
     const corridorConfidence = scoreLeadVehicle(track, {
       corridor: this.corridor,
-      telemetry: this.telemetrySnap,
+      telemetry: this.effectiveTelemetry(),
     }).corridorScore;
     const relativeState = classifyRelativeMovement(track, {
       nowMs: timestampMs,
