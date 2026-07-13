@@ -5,6 +5,7 @@ import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
 import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { blurOnWeb } from "@/lib/blurOnWeb";
+import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 
 /**
  * Twin of `apps/web/src/app/live/go/page.tsx`: lets the owner pick a
@@ -33,6 +34,7 @@ export default function GoLivePickerScreen() {
           <Text className="text-sm text-muted-foreground">
             Pick which character profile you want to stream from.
           </Text>
+          <SharedDestinationHint />
         </View>
       </View>
 
@@ -66,5 +68,19 @@ export default function GoLivePickerScreen() {
         </ScrollView>
       )}
     </Screen>
+  );
+}
+
+function SharedDestinationHint() {
+  const pending = useSharedDestinationStore((s) => s.pending);
+  const lastError = useSharedDestinationStore((s) => s.lastError);
+  if (lastError) {
+    return <Text className="mt-1 text-xs text-amber-300">{lastError}</Text>;
+  }
+  if (!pending) return null;
+  return (
+    <Text className="mt-1 text-xs text-emerald-300">
+      Destination ready: {pending.label}. Pick a character to continue.
+    </Text>
   );
 }

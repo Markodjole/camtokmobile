@@ -37,7 +37,19 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "versionCode": 5
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            { "scheme": "geo" },
+            { "scheme": "https", "host": "maps.google.com" },
+            { "scheme": "https", "host": "www.google.com", "pathPrefix": "/maps" },
+            { "scheme": "https", "host": "maps.app.goo.gl" }
+          ]
+        }
+      ],
+      "versionCode": 6
     },
     "web": {
       "bundler": "metro",
@@ -47,6 +59,17 @@
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": ["text/*"],
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1,
+            "NSExtensionActivationSupportsText": true
+          }
+        }
+      ],
       [
         "expo-camera",
         {

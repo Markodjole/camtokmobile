@@ -23,6 +23,7 @@ import {
 } from "@/lib/placeSearch";
 import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
+import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 import type { TransportMode } from "@/types/live";
 import { TWO_WHEELED_MODES } from "@/lib/transportMode";
 
@@ -111,6 +112,7 @@ export default function GoLiveControlScreen() {
     label: string;
     placeId: string | null;
   } | null>(null);
+  const [sharedFromMaps, setSharedFromMaps] = useState(false);
   const [recentDestinations, setRecentDestinations] = useState<SavedDestination[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const hideRecentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,6 +121,24 @@ export default function GoLiveControlScreen() {
   const [placeSessionToken] = useState(() =>
     Math.random().toString(36).slice(2),
   );
+
+  // Prefill destination when rider shared a Maps place into CamTok.
+  const pendingShared = useSharedDestinationStore((s) => s.pending);
+  useEffect(() => {
+    if (!pendingShared) return;
+    const pending = useSharedDestinationStore.getState().consume();
+    if (!pending) return;
+    setDestination({
+      lat: pending.lat,
+      lng: pending.lng,
+      label: pending.label,
+      placeId: pending.placeId,
+    });
+    setDestinationQuery(pending.label);
+    setSharedFromMaps(true);
+    setDestinationSuggestions([]);
+    setShowRecent(false);
+  }, [pendingShared]);
 
   // Drive market / zone creation — mirrors OwnerLiveControlPanel.startTick().
   // Without this, runRoomTick never fires unless the Vercel cron is running.
@@ -372,6 +392,29 @@ export default function GoLiveControlScreen() {
             </Card>
             <View style={{ gap: 6 }}>
               <Text className="text-sm font-medium text-white">Destination</Text>
+              <Text className="text-xs text-muted-foreground">
+                From Grab/Maps: Share place → CamTok. Or search below.
+              </Text>
+              {sharedFromMaps && destination ? (
+                <View
+                  style={{
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: "rgba(34,197,94,0.45)",
+                    backgroundColor: "rgba(22,163,74,0.18)",
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    marginBottom: 4,
+                  }}
+                >
+                  <Text style={{ color: "#bbf7d0", fontSize: 12, fontWeight: "700" }}>
+                    Shared from Maps
+                  </Text>
+                  <Text style={{ color: "#fff", fontSize: 13, marginTop: 2 }}>
+                    📍 {destination.label}
+                  </Text>
+                </View>
+              ) : null}
               <View
                 style={{
                   borderRadius: 12,
@@ -386,6 +429,7 @@ export default function GoLiveControlScreen() {
                   value={destinationQuery}
                   onChangeText={(t) => {
                     setDestination(null);
+                    setSharedFromMaps(false);
                     setShowRecent(t.trim().length === 0);
                     queueDestinationSearch(t);
                   }}

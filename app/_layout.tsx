@@ -2,28 +2,39 @@ import "../global.css";
 import "@/tasks/liveLocationTask";
 import { Redirect, Stack, usePathname, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ShareIntentProvider } from "expo-share-intent";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
 import { QueryProvider } from "@/providers/QueryProvider";
-import { View } from "react-native";
 import { AppBottomBar, AppTopBar } from "@/components/navigation/AppChrome";
+import { ShareDestinationBridge } from "@/components/live/ShareDestinationBridge";
 import { useBroadcasterTelemetry } from "@/hooks/useBroadcasterTelemetry";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import type { TransportMode } from "@/types/live";
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <QueryProvider>
-          <AuthProvider>
-            <StatusBar style="light" />
-            <AuthGate />
-          </AuthProvider>
-        </QueryProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ShareIntentProvider
+      options={{
+        debug: __DEV__,
+        resetOnBackground: false,
+        disabled: Platform.OS === "web",
+        scheme: "camtok",
+      }}
+    >
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <QueryProvider>
+            <AuthProvider>
+              <StatusBar style="light" />
+              <AuthGate />
+            </AuthProvider>
+          </QueryProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ShareIntentProvider>
   );
 }
 
@@ -51,6 +62,7 @@ function AuthGate() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <GlobalLiveTelemetry />
+      <ShareDestinationBridge />
       {!isFullscreen && <AppTopBar />}
       <View style={{ flex: 1 }}>
         <Stack
