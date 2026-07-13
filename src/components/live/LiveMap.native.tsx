@@ -31,6 +31,11 @@ type Props = {
   destinationRoute?: Array<{ lat: number; lng: number }> | null;
   /** Green path ahead of vehicle once bets lock (driver mode). */
   committedRouteAhead?: Array<{ lat: number; lng: number }> | null;
+  /**
+   * Blue path to the next CamTok instruction (turn pin). Updates as
+   * /driver-route polls change — shown as soon as an instruction exists.
+   */
+  instructionRouteAhead?: Array<{ lat: number; lng: number }> | null;
   /** Labels from driver routing persona (viewers see these on the map). */
   driverRouteBadges?: string[] | null;
   zones?: Array<{
@@ -164,6 +169,7 @@ function LiveMapInner({
   destination,
   destinationRoute,
   committedRouteAhead = null,
+  instructionRouteAhead = null,
   driverRouteBadges = null,
   zones = [],
   checkpoints = [],
@@ -574,9 +580,11 @@ function LiveMapInner({
   const nextDistanceM = driverRoute?.pin?.distanceMeters ?? null;
   // Pin stays visible until vehicle passes it.
   const showPin = !!driverRoute?.pin;
-  const showLine =
+  // Near-pin approach rail (backend ~50 m segment) — still useful when close.
+  const showNearApproach =
     showGuidanceLine &&
     !committedRouteAhead &&
+    !instructionRouteAhead &&
     nextDistanceM != null &&
     nextDistanceM < 50;
 
@@ -587,6 +595,15 @@ function LiveMapInner({
         longitude: p.lng,
       })),
     [committedRouteAhead],
+  );
+
+  const instructionCoords = useMemo(
+    () =>
+      (instructionRouteAhead ?? []).map((p) => ({
+        latitude: p.lat,
+        longitude: p.lng,
+      })),
+    [instructionRouteAhead],
   );
 
   const destinationCoords = useMemo(
@@ -676,7 +693,7 @@ function LiveMapInner({
         ))}
 
         {/* Single blue rail — one pass is enough */}
-        {showLine && !passedRailEnd && railCoords.length > 1 ? (
+        {showNearApproach && !passedRailEnd && railCoords.length > 1 ? (
           <Polyline
             coordinates={railCoords}
             strokeColor="#3B82F6"
@@ -686,6 +703,31 @@ function LiveMapInner({
             lineJoin="round"
             lineDashPattern={[0]}
           />
+        ) : null}
+
+        {instructionCoords.length > 1 && committedCoords.length < 2 ? (
+          <>
+            <Polyline
+              coordinates={instructionCoords}
+              strokeColor="#1E3A8A"
+              strokeWidth={10}
+              zIndex={5}
+              geodesic
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
+            />
+            <Polyline
+              coordinates={instructionCoords}
+              strokeColor="#3B82F6"
+              strokeWidth={6}
+              zIndex={6}
+              geodesic
+              lineCap="round"
+              lineJoin="round"
+              lineDashPattern={[0]}
+            />
+          </>
         ) : null}
 
         {committedCoords.length > 1 ? (
@@ -875,9 +917,27 @@ export const LiveMap = memo(LiveMapInner, (prev, next) => {
     prev.destination?.lat !== next.destination?.lat ||
     prev.destination?.lng !== next.destination?.lng ||
     prev.destinationRoute?.length !== next.destinationRoute?.length ||
-    prev.committedRouteAhead?.length !== next.committedRouteAhead?.length
+    prev.committedRouteAhead?.length !== next.committedRouteAhead?.length ||
+    prev.instructionRouteAhead?.length !== next.instructionRouteAhead?.length
   )
     return false;
+
+  const prevInstr = prev.instructionRouteAhead;
+  const nextInstr = next.instructionRouteAhead;
+  if (prevInstr && nextInstr && prevInstr.length > 0 && nextInstr.length > 0) {
+    const pa = prevInstr[0]!;
+    const pb = prevInstr[prevInstr.length - 1]!;
+    const na = nextInstr[0]!;
+    const nb = nextInstr[nextInstr.length - 1]!;
+    if (
+      pa.lat !== na.lat ||
+      pa.lng !== na.lng ||
+      pb.lat !== nb.lat ||
+      pb.lng !== nb.lng
+    ) {
+      return false;
+    }
+  }
 
   return true;
 });

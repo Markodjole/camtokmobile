@@ -99,6 +99,8 @@ export default function RoomScreen() {
   const [mapResetKey, setMapResetKey] = useState(0);
   const isOwnLiveSession =
     !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
+  /** Rider = own live session / driver mode — nav only, no betting UI. */
+  const isRider = isDriverMode || isOwnLiveSession;
 
   // Keep screen awake only while in a live room. Global useKeepAwake() throws
   // "Unable to activate keep awake" on Android when the Activity isn't ready.
@@ -302,6 +304,41 @@ export default function RoomScreen() {
     driverRoute.data?.approachLine,
   ]);
 
+  /**
+   * Blue line to the next CamTok turn instruction — updates whenever
+   * /driver-route polls a new pin (not only inside the last 50 m).
+   */
+  const instructionRouteAhead = useMemo(() => {
+    if (driverCommittedRoute) return null;
+    if (currentMarket?.marketType === "city_grid") return null;
+    const last = resolvedRoutePoints[resolvedRoutePoints.length - 1];
+    if (!last || !driverTurnPoint) return null;
+
+    const approach = driverRoute.data?.approachLine ?? [];
+    if (approach.length >= 2) {
+      const ahead = trimPolylineAhead(approach, last);
+      if (ahead.length >= 2) return ahead;
+    }
+
+    const destPoly = destinationRoute.data?.route?.polyline;
+    if (destPoly && destPoly.length >= 2) {
+      const alongDest = buildRouteToPinPolyline(destPoly, last, driverTurnPoint);
+      if (alongDest.length >= 2) return alongDest;
+    }
+
+    return [
+      { lat: last.lat, lng: last.lng },
+      { lat: driverTurnPoint.lat, lng: driverTurnPoint.lng },
+    ];
+  }, [
+    driverCommittedRoute,
+    currentMarket?.marketType,
+    resolvedRoutePoints,
+    driverTurnPoint,
+    driverRoute.data?.approachLine,
+    destinationRoute.data?.route?.polyline,
+  ]);
+
   const driverTurnDistanceM = useMemo(() => {
     const pin = driverRoute.data?.pins?.[0];
     if (pin?.distanceMeters != null) return pin.distanceMeters;
@@ -383,6 +420,7 @@ export default function RoomScreen() {
   );
 
   const driverRouteBadges = useMemo(() => {
+    if (isRider) return null;
     const d = room.data;
     if (!d) return [];
     return drivingRouteStyleBadges(
@@ -390,10 +428,34 @@ export default function RoomScreen() {
       d.transportMode,
     );
   }, [
+    isRider,
     room.data?.transportMode,
     room.data?.drivingRouteStyle?.comfortVsSpeed,
     room.data?.drivingRouteStyle?.pathStyle,
     room.data?.drivingRouteStyle?.ecoConscious,
+  ]);
+
+  const riderGuidanceLabel = useMemo(() => {
+    if (!isRider) return null;
+    if (driverTurnDirection && driverTurnDistanceM != null) {
+      const dir =
+        driverTurnDirection === "left"
+          ? "Turn left"
+          : driverTurnDirection === "right"
+            ? "Turn right"
+            : "Continue";
+      const meters = Math.max(1, Math.round(driverTurnDistanceM));
+      return `${dir} · ${meters} m`;
+    }
+    if (driverTurnPoint) return "Follow the blue line";
+    if (room.data?.destination) return "Follow the red route";
+    return "Waiting for next instruction…";
+  }, [
+    isRider,
+    driverTurnDirection,
+    driverTurnDistanceM,
+    driverTurnPoint,
+    room.data?.destination,
   ]);
 
   const mapStale = useLiveMapStale({
@@ -555,6 +617,7 @@ export default function RoomScreen() {
           destination={data.destination}
           destinationRoute={destinationRoute.data?.route?.polyline ?? null}
           committedRouteAhead={driverCommittedRoute}
+          instructionRouteAhead={instructionRouteAhead}
           driverRouteBadges={driverRouteBadges}
           zones={gridZones}
           checkpoints={[]}
@@ -640,30 +703,55 @@ export default function RoomScreen() {
               {String(data.transportMode).replace("_", " ")}
             </Text>
           </View>
-          <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Pressable
-              onPress={() => setShowComposer(true)}
-              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
-              accessibilityLabel="Propose market"
-            >
-              <Text style={{ color: "#fff", fontSize: 14 }}>＋</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setBetAmount((n) => Math.max(1, n - 5))}
-              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
-            >
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>−</Text>
-            </Pressable>
-            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", minWidth: 40, textAlign: "center" }}>${betAmount}</Text>
-            <Pressable
-              onPress={() => setBetAmount((n) => n + 5)}
-              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
-            >
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>+</Text>
-            </Pressable>
-          </View>
+          {!isRider ? (
+            <View style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Pressable
+                onPress={() => setShowComposer(true)}
+                style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+                accessibilityLabel="Propose market"
+              >
+                <Text style={{ color: "#fff", fontSize: 14 }}>＋</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setBetAmount((n) => Math.max(1, n - 5))}
+                style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>−</Text>
+              </Pressable>
+              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", minWidth: 40, textAlign: "center" }}>${betAmount}</Text>
+              <Pressable
+                onPress={() => setBetAmount((n) => n + 5)}
+                style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>+</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{ marginLeft: "auto" }} />
+          )}
         </View>
-        {currentMarket ? (
+        {isRider && riderGuidanceLabel ? (
+          <View
+            style={{
+              marginHorizontal: 16,
+              marginTop: 4,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: "rgba(96,165,250,0.55)",
+              backgroundColor: "rgba(37,99,235,0.35)",
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+            }}
+          >
+            <Text
+              style={{ color: "#eff6ff", fontSize: 16, fontWeight: "800", textAlign: "center" }}
+              numberOfLines={1}
+            >
+              {riderGuidanceLabel}
+            </Text>
+          </View>
+        ) : null}
+        {!isRider && currentMarket ? (
           <View style={{ marginHorizontal: 16, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 20, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 12, paddingVertical: 6 }}>
             <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, flex: 1 }} numberOfLines={1}>{currentMarket.title}</Text>
             <MarketTimer locksAt={currentMarket.locksAt} />
@@ -678,7 +766,7 @@ export default function RoomScreen() {
             position: "absolute",
             left: 12,
             right: 12,
-            top: insets.top + 72,
+            top: insets.top + (isRider ? 118 : 72),
             zIndex: 39,
             borderRadius: 999,
             borderWidth: 1,
@@ -692,13 +780,13 @@ export default function RoomScreen() {
             style={{ color: "#fee2e2", fontSize: 12, fontWeight: "700" }}
             numberOfLines={1}
           >
-            📍 Destination: {data.destination.label}
+            📍 {data.destination.label}
           </Text>
         </View>
       ) : null}
 
       {/* Map controls */}
-      {mapExpanded && !isDriverMode ? (
+      {mapExpanded && !isRider ? (
         <View style={{ position: "absolute", right: 12, top: 122, zIndex: 45 }}>
           <Pressable
             onPress={blurOnWeb(() => setShowZones((v) => !v))}
@@ -724,7 +812,7 @@ export default function RoomScreen() {
         <View style={{ position: "absolute", right: 12, top: 160, zIndex: 45 }}>
           <Pressable
             onPress={blurOnWeb(() => setMapFollow(true))}
-            accessibilityLabel="Recenter on streamer"
+            accessibilityLabel="Recenter on you"
             style={{
               borderRadius: 999,
               borderWidth: 1,
@@ -737,7 +825,7 @@ export default function RoomScreen() {
             }}
           >
             <Text style={{ color: "#fffbeb", fontSize: 11, fontWeight: "700" }}>
-              ◎ Center on streamer
+              {isRider ? "◎ Recenter" : "◎ Center on streamer"}
             </Text>
           </Pressable>
         </View>
@@ -821,7 +909,7 @@ export default function RoomScreen() {
         }}
         pointerEvents="box-none"
       >
-        {isDriverMode ? (
+        {isRider ? (
           <DriverStatusBar
             routePoints={resolvedRoutePoints}
             sessionId={effectiveSessionId}
@@ -860,7 +948,7 @@ export default function RoomScreen() {
         )}
       </View>
 
-      {roomId ? (
+      {!isRider && roomId ? (
         <MarketComposerSheet
           roomId={roomId}
           visible={showComposer}
