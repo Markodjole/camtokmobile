@@ -1,27 +1,34 @@
-import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Stack, useRouter } from "expo-router";
 import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
-import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 
 /**
- * Twin of `apps/web/src/app/live/go/page.tsx`: lets the owner pick a
- * character to broadcast from.
+ * Auto-picks the logged-in user's character and continues to go-live.
+ * No character picker when the account already owns a profile.
  */
 export default function GoLivePickerScreen() {
   const router = useRouter();
   const { data, isLoading, error } = useMyCharacters();
+  const redirected = useRef(false);
+  const pending = useSharedDestinationStore((s) => s.pending);
+  const lastError = useSharedDestinationStore((s) => s.lastError);
+
+  useEffect(() => {
+    if (redirected.current || isLoading || error) return;
+    const first = data?.[0];
+    if (!first) return;
+    redirected.current = true;
+    router.replace(`/live/go/${first.id}`);
+  }, [data, isLoading, error, router]);
 
   return (
     <Screen>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View className="mb-3 flex-row items-center justify-between gap-3">
-        <LiveModeSwitch />
-      </View>
       <View className="mb-2 flex-row items-center gap-3">
         <Pressable
           onPress={blurOnWeb(() => router.back())}
@@ -32,13 +39,20 @@ export default function GoLivePickerScreen() {
         <View className="flex-1">
           <Text className="text-2xl font-bold text-white">Go live</Text>
           <Text className="text-sm text-muted-foreground">
-            Pick which character profile you want to stream from.
+            Starting your ride…
           </Text>
-          <SharedDestinationHint />
+          {lastError ? (
+            <Text className="mt-1 text-xs text-amber-300">{lastError}</Text>
+          ) : null}
+          {pending ? (
+            <Text className="mt-1 text-xs text-emerald-300">
+              Destination ready: {pending.label}
+            </Text>
+          ) : null}
         </View>
       </View>
 
-      {isLoading ? (
+      {isLoading || (data && data.length > 0 && !error) ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#ffffff" />
         </View>
@@ -47,40 +61,12 @@ export default function GoLivePickerScreen() {
           {error instanceof Error ? error.message : "Could not load characters"}
         </Text>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingVertical: 8, gap: 8 }}>
-          {(data ?? []).map((c) => (
-            <Pressable
-              key={c.id}
-              onPress={blurOnWeb(() => router.push(`/live/go/${c.id}`))}
-              className="flex-row items-center justify-between rounded-2xl border border-border bg-muted p-3 active:opacity-80"
-            >
-              <Text className="text-white">{c.name}</Text>
-              <Text className="text-sm font-semibold text-primary">Go live →</Text>
-            </Pressable>
-          ))}
-          {(data ?? []).length === 0 ? (
-            <View className="mt-4 rounded-2xl border border-border bg-muted p-4">
-              <Text className="text-sm text-muted-foreground">
-                No owned characters found. Create one from the web app first.
-              </Text>
-            </View>
-          ) : null}
-        </ScrollView>
+        <View className="mt-4 rounded-2xl border border-border bg-muted p-4">
+          <Text className="text-sm text-muted-foreground">
+            No owned characters found. Create one from the web app first.
+          </Text>
+        </View>
       )}
     </Screen>
-  );
-}
-
-function SharedDestinationHint() {
-  const pending = useSharedDestinationStore((s) => s.pending);
-  const lastError = useSharedDestinationStore((s) => s.lastError);
-  if (lastError) {
-    return <Text className="mt-1 text-xs text-amber-300">{lastError}</Text>;
-  }
-  if (!pending) return null;
-  return (
-    <Text className="mt-1 text-xs text-emerald-300">
-      Destination ready: {pending.label}. Pick a character to continue.
-    </Text>
   );
 }

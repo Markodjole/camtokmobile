@@ -1,12 +1,14 @@
 import React from "react";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 
 type NavItem = {
   label: string;
   icon: string;
+  iconName?: keyof typeof Ionicons.glyphMap;
   isActive: (path: string) => boolean;
   onPress: () => void;
 };
@@ -14,10 +16,9 @@ type NavItem = {
 export function AppTopBar() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const modeLabel = pathname.startsWith("/live/go")
-    ? "DRIVER"
-    : pathname.startsWith("/live") || pathname.startsWith("/room/")
-      ? "VIEWER"
+  const modeLabel =
+    pathname.startsWith("/live/go") || pathname.startsWith("/room/")
+      ? "DRIVER"
       : "APP";
 
   return (
@@ -65,17 +66,10 @@ export function AppBottomBar() {
       icon: "＋",
       isActive: (path) =>
         path.startsWith("/live/go") ||
-        (!!activeBroadcastSessionId && path.startsWith("/room/")) ||
-        (!path.startsWith("/live") && !path.startsWith("/room/")),
+        path.startsWith("/room/") ||
+        !!activeBroadcastSessionId ||
+        (!path.startsWith("/wallet") && !path.startsWith("/profile")),
       onPress: () => router.push("/live/go"),
-    },
-    {
-      label: "Viewer",
-      icon: "●",
-      isActive: (path) =>
-        (path.startsWith("/live") && !path.startsWith("/live/go")) ||
-        (path.startsWith("/room/") && !activeBroadcastSessionId),
-      onPress: () => router.push("/(tabs)/live"),
     },
     {
       label: "Wallet",
@@ -86,6 +80,7 @@ export function AppBottomBar() {
     {
       label: "Profile",
       icon: "☺",
+      iconName: "person-outline",
       isActive: (path) => path.startsWith("/profile"),
       onPress: () => router.push("/(tabs)/profile"),
     },
@@ -131,9 +126,17 @@ export function AppBottomBar() {
                 opacity: 1,
               }}
             >
-              <Text style={{ color: active ? "#60a5fa" : "#a1a1aa", fontSize: 18 }}>
-                {item.icon}
-              </Text>
+              {item.iconName ? (
+                <Ionicons
+                  name={item.iconName}
+                  size={20}
+                  color={active ? "#60a5fa" : "#a1a1aa"}
+                />
+              ) : (
+                <Text style={{ color: active ? "#60a5fa" : "#a1a1aa", fontSize: 18 }}>
+                  {item.icon}
+                </Text>
+              )}
               <Text
                 style={{
                   color: active ? "#93c5fd" : "#a1a1aa",

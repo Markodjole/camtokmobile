@@ -57,7 +57,7 @@ type Props = {
   /** Called when user taps a zone polygon. */
   onZoneSelect?: (id: string | null) => void;
   followDriver?: boolean;
-  /** Higher zoom = closer view. Default 17. Pass 19 for driver close-up. */
+  /** Higher zoom = closer view. Default 19 for rider street-level. */
   followZoom?: number;
   /** Increment to clear smoothing/camera state and re-seed from the latest point (recovery when stuck). */
   mapResetKey?: number;
@@ -176,7 +176,7 @@ function LiveMapInner({
   selectedZoneId = null,
   onZoneSelect,
   followDriver = true,
-  followZoom = 17,
+  followZoom = 19,
   mapResetKey = 0,
   showGuidanceLine = false,
   onUserInteract,

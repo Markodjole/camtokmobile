@@ -1,5 +1,6 @@
 import { Tabs, useRouter } from "expo-router";
 import { Text } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 /**
  * Bottom tab bar.
@@ -44,10 +45,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="live"
         options={{
+          href: null,
           title: "Live",
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18 }}>●</Text>
-          ),
         }}
       />
       <Tabs.Screen
@@ -64,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 18 }}>☺</Text>
+            <Ionicons name="person-outline" size={20} color={color} />
           ),
         }}
       />

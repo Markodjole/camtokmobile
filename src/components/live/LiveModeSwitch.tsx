@@ -1,13 +1,8 @@
 import React from "react";
-import { usePathname, useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
+/** Rider-only badge — viewer mode is not offered in the mobile app. */
 export function LiveModeSwitch() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const viewerActive = pathname.startsWith("/live") && !pathname.startsWith("/live/go");
-  const driverActive = pathname.startsWith("/live/go");
-
   return (
     <View
       style={{
@@ -18,47 +13,26 @@ export function LiveModeSwitch() {
         borderColor: "rgba(82,82,91,0.95)",
         backgroundColor: "rgba(24,24,27,0.92)",
         padding: 3,
-        gap: 4,
       }}
     >
-      <Pressable
-        onPress={() => router.push("/live/go")}
+      <View
         style={{
           borderRadius: 10,
           paddingHorizontal: 10,
           paddingVertical: 6,
-          backgroundColor: driverActive ? "rgba(16,185,129,0.24)" : "transparent",
+          backgroundColor: "rgba(16,185,129,0.24)",
         }}
       >
         <Text
           style={{
-            color: driverActive ? "#bbf7d0" : "#a1a1aa",
+            color: "#bbf7d0",
             fontSize: 12,
             fontWeight: "700",
           }}
         >
           Driver
         </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => router.push("/(tabs)/live")}
-        style={{
-          borderRadius: 10,
-          paddingHorizontal: 10,
-          paddingVertical: 6,
-          backgroundColor: viewerActive ? "rgba(59,130,246,0.25)" : "transparent",
-        }}
-      >
-        <Text
-          style={{
-            color: viewerActive ? "#bfdbfe" : "#a1a1aa",
-            fontSize: 12,
-            fontWeight: "700",
-          }}
-        >
-          Viewer
-        </Text>
-      </Pressable>
+      </View>
     </View>
   );
 }

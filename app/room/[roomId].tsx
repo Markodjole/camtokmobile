@@ -15,7 +15,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { LiveMap } from "@/components/live/LiveMap";
-import { LiveVideoPlayer } from "@/components/live/LiveVideoPlayer";
 import { BroadcasterCameraPreview } from "@/components/live/BroadcasterCameraPreview";
 import { streamPipDimensions } from "@/components/live/SquareTopVideoFrame";
 import { DirectionalBetPad } from "@/components/live/DirectionalBetPad";
@@ -72,15 +71,32 @@ export default function RoomScreen() {
   const isDriverMode = mode === "driver";
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  const room = useLiveRoom(roomId ?? null);
-  const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
-  const routePoints = useRoutePoints(effectiveSessionId);
-  const driverRoute = useDriverRoute(roomId ?? null);
-  const placeBet = usePlaceBet(roomId ?? null);
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
   const clearBroadcastStore = useLiveBroadcastStore((s) => s.clear);
+
+  // Rider-only: only load room data for driver mode / own session.
+  const isLikelyRider =
+    isDriverMode ||
+    (!!routeSessionId &&
+      !!localBroadcastSessionId &&
+      routeSessionId === localBroadcastSessionId);
+
+  const room = useLiveRoom(isLikelyRider ? (roomId ?? null) : null);
+  const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
+  const isOwnLiveSession =
+    !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
+  /** Rider = own live session / driver mode — nav only, no betting UI. */
+  const isRider = isDriverMode || isOwnLiveSession;
+
+  // Own GPS replaces remote route-point polling for the rider.
+  const routePoints = useRoutePoints(effectiveSessionId, {
+    enabled: isLikelyRider && !isRider,
+  });
+  const driverRoute = useDriverRoute(roomId ?? null, {
+    enabled: isLikelyRider && isRider,
+  });
+  const placeBet = usePlaceBet(null);
 
   // Pre-fetch map tiles
   const firstPoint = room.data?.routePoints?.[0] ?? routePoints.data?.[0];
@@ -97,10 +113,11 @@ export default function RoomScreen() {
   const [endingDriverSession, setEndingDriverSession] = useState(false);
   const [roomLocalPoints, setRoomLocalPoints] = useState<RoutePoint[]>([]);
   const [mapResetKey, setMapResetKey] = useState(0);
-  const isOwnLiveSession =
-    !!effectiveSessionId && localBroadcastSessionId === effectiveSessionId;
-  /** Rider = own live session / driver mode — nav only, no betting UI. */
-  const isRider = isDriverMode || isOwnLiveSession;
+  // Bounce viewer deep-links — mobile is rider/driver only.
+  useEffect(() => {
+    if (isLikelyRider) return;
+    router.replace("/live/go");
+  }, [isLikelyRider, router]);
 
   // Keep screen awake only while in a live room. Global useKeepAwake() throws
   // "Unable to activate keep awake" on Android when the Activity isn't ready.
@@ -393,7 +410,7 @@ export default function RoomScreen() {
   const gridAnchorLat = lastLat ?? currentMarket?.turnPointLat ?? null;
   const gridAnchorLng = lastLng ?? currentMarket?.turnPointLng ?? null;
   const cityGridSpec =
-    currentMarket?.marketType === "city_grid"
+    !isRider && currentMarket?.marketType === "city_grid"
       ? (currentMarket.cityGridSpec ?? null)
       : null;
   const cityGridCells = useCityGridCells(cityGridSpec, gridAnchorLat, gridAnchorLng);
@@ -531,10 +548,19 @@ export default function RoomScreen() {
         body: {},
       }).catch(() => undefined);
       clearBroadcastStore();
-      router.replace("/(tabs)/live");
+      router.replace("/live/go");
     } finally {
       setEndingDriverSession(false);
     }
+  }
+
+  if (!isLikelyRider) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black">
+        <Stack.Screen options={{ headerShown: false }} />
+        <ActivityIndicator color="#ffffff" />
+      </View>
+    );
   }
 
   if (room.isLoading && !room.data) {
@@ -594,8 +620,8 @@ export default function RoomScreen() {
           routePoints={resolvedRoutePoints}
           mapResetKey={mapResetKey}
           followDriver={mapFollow}
-          followZoom={isDriverMode ? 17 : 16}
-          showGuidanceLine={isDriverMode}
+          followZoom={19}
+          showGuidanceLine={isRider}
           onUserInteract={() => setMapFollow(false)}
           driverRoute={
             driverRoute.data
@@ -654,18 +680,13 @@ export default function RoomScreen() {
             : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
         }
       >
-        {isOwnLiveSession ? (
+        {isOwnLiveSession || isDriverMode ? (
           <BroadcasterCameraPreview
             liveSessionId={effectiveSessionId}
             facing="back"
             style={{ flex: 1 }}
           />
-        ) : (
-          <LiveVideoPlayer
-            liveSessionId={effectiveSessionId}
-            localStream={null}
-          />
-        )}
+        ) : null}
       </View>
 
       {/* Top gradient scrim */}

@@ -26,10 +26,14 @@ export function useLiveRoom(roomId: string | null) {
   });
 }
 
-export function useRoutePoints(sessionId: string | null) {
+export function useRoutePoints(
+  sessionId: string | null,
+  opts?: { enabled?: boolean },
+) {
+  const enabled = opts?.enabled !== false;
   return useQuery({
     queryKey: ["route-points", sessionId],
-    enabled: !!sessionId,
+    enabled: !!sessionId && enabled,
     queryFn: async ({ signal }) => {
       const res = await apiFetch<{ points: RoutePoint[] }>(
         `/api/live/sessions/${sessionId}/route-points`,
@@ -42,10 +46,14 @@ export function useRoutePoints(sessionId: string | null) {
   });
 }
 
-export function useDriverRoute(roomId: string | null) {
+export function useDriverRoute(
+  roomId: string | null,
+  opts?: { enabled?: boolean },
+) {
+  const enabled = opts?.enabled !== false;
   return useQuery({
     queryKey: ["driver-route", roomId],
-    enabled: !!roomId,
+    enabled: !!roomId && enabled,
     queryFn: async ({ signal }) => {
       const res = await apiFetch<{ instruction: DriverRouteInstruction | null }>(
         `/api/live/rooms/${roomId}/driver-route`,

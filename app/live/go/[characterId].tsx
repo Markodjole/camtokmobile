@@ -13,8 +13,8 @@ import { Screen } from "@/components/ui/Screen";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { LiveModeSwitch } from "@/components/live/LiveModeSwitch";
 import { apiFetch } from "@/lib/api";
+import { useMyCharacters } from "@/hooks/useMyCharacters";
 import { blurOnWeb } from "@/lib/blurOnWeb";
 import {
   resolvePlaceSuggestion,
@@ -121,6 +121,10 @@ export default function GoLiveControlScreen() {
   const [placeSessionToken] = useState(() =>
     Math.random().toString(36).slice(2),
   );
+  const autoStartedRef = useRef(false);
+  const { data: myCharacters } = useMyCharacters();
+  const characterName =
+    myCharacters?.find((c) => c.id === characterId)?.name ?? null;
 
   // Prefill destination when rider shared a Maps place into CamTok.
   const pendingShared = useSharedDestinationStore((s) => s.pending);
@@ -207,8 +211,11 @@ export default function GoLiveControlScreen() {
   const lastPoint = routePoints[routePoints.length - 1];
   useMapTilePreload(lastPoint?.lat, lastPoint?.lng);
 
-  async function goLive() {
+  async function goLive(opts?: {
+    destinationOverride?: typeof destination;
+  }) {
     if (!characterId) return;
+    const dest = opts?.destinationOverride ?? destination;
     setStarting(true);
     setError(null);
     try {
@@ -219,12 +226,12 @@ export default function GoLiveControlScreen() {
         body: {
           characterId,
           transportMode,
-          destination: destination
+          destination: dest
             ? {
-                lat: destination.lat,
-                lng: destination.lng,
-                label: destination.label,
-                placeId: destination.placeId,
+                lat: dest.lat,
+                lng: dest.lng,
+                label: dest.label,
+                placeId: dest.placeId,
               }
             : undefined,
         },
@@ -237,12 +244,12 @@ export default function GoLiveControlScreen() {
         setSessionId(res.sessionId);
         setRoomId(res.roomId);
         setStoreTransportMode(transportMode);
-        if (destination) {
+        if (dest) {
           void saveRecentDestination({
-            placeId: destination.placeId,
-            label: destination.label,
-            lat: destination.lat,
-            lng: destination.lng,
+            placeId: dest.placeId,
+            label: dest.label,
+            lat: dest.lat,
+            lng: dest.lng,
           });
         }
         router.replace(
@@ -255,6 +262,15 @@ export default function GoLiveControlScreen() {
       setStarting(false);
     }
   }
+
+  // One-tap ride: if Maps already shared a destination, start immediately.
+  useEffect(() => {
+    if (autoStartedRef.current || sessionId || starting) return;
+    if (!sharedFromMaps || !destination || !characterId) return;
+    autoStartedRef.current = true;
+    void goLive({ destinationOverride: destination });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedFromMaps, destination, characterId, sessionId, starting]);
 
   function queueDestinationSearch(text: string) {
     const q = text.trim();
@@ -348,9 +364,14 @@ export default function GoLiveControlScreen() {
         >
           <Text className="text-white">‹</Text>
         </Pressable>
-        <Text className="text-xl font-bold text-white">Go live</Text>
+        <View className="flex-1">
+          <Text className="text-xl font-bold text-white">Go live</Text>
+          {characterName ? (
+            <Text className="text-xs text-muted-foreground">{characterName}</Text>
+          ) : null}
+        </View>
         {sessionId ? (
-          <View className="ml-auto rounded bg-red-500/30 px-2 py-0.5">
+          <View className="rounded bg-red-500/30 px-2 py-0.5">
             <Text className="text-[11px] font-bold tracking-wider text-red-400">
               LIVE
             </Text>
@@ -366,7 +387,7 @@ export default function GoLiveControlScreen() {
             <Card>
               <CardTitle>Transport mode</CardTitle>
               <CardDescription>
-                Pick mode and destination. No extra setup.
+                Choose how you ride, then go live.
               </CardDescription>
               <View className="mt-3 flex-row flex-wrap gap-2">
                 {MODES.map((m) => {
@@ -545,12 +566,12 @@ export default function GoLiveControlScreen() {
                 starting
                   ? "Starting…"
                   : destination
-                    ? "Start broadcasting"
-                    : "Pick destination first"
+                    ? "Go live"
+                    : "Go live without destination"
               }
-              onPress={goLive}
+              onPress={() => void goLive()}
               loading={starting}
-              disabled={!destination || starting}
+              disabled={starting}
               fullWidth
             />
           </View>

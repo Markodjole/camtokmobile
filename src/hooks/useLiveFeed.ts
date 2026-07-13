@@ -3,12 +3,13 @@ import { apiFetch } from "@/lib/api";
 import type { LiveFeedRow } from "@/types/live";
 
 /**
- * Mirrors the web `LiveFeedShell` poll loop — every 4s the backend returns
- * the active live rooms view.
+ * Live feed polling — unused on rider-only mobile (viewer tab redirects).
+ * Kept for optional re-enable; disabled by default so it never hits the network.
  */
-export function useLiveFeed() {
+export function useLiveFeed(opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["live-feed"],
+    enabled: opts?.enabled === true,
     queryFn: async ({ signal }) => {
       const res = await apiFetch<{ items: LiveFeedRow[] }>("/api/live/rooms", {
         signal,
