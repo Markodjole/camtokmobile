@@ -1,45 +1,57 @@
 # Google Maps setup (CamTok mobile)
 
 Native live map uses `react-native-maps` + `PROVIDER_GOOGLE`. The API key is
-injected by `app.config.js` from env / EAS build env into Android + iOS native
-config. **A new native build is required** after changing the key.
+injected by `app.config.js` / EAS `env` into AndroidManifest as
+`com.google.android.geo.API_KEY`. **JS reload cannot fix a blank map** — only a
+native APK build can change the baked-in key.
 
-## Enable now (map display only)
+## Verified on build `00b309f9` (2026-07-12)
 
-In [Google Cloud Console](https://console.cloud.google.com/) on the project that owns key `AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs`:
+- APK **does** contain:
+  - `com.google.android.geo.API_KEY` = `AIzaSyDGhYpdm871g74WzlW1xRXrTTfiM_NVixs`
+  - package `com.camtok.mobile`
+- Metro logs `[LiveMap] Google MapView ready` → MapView mounts fine.
+- Blank / grey map with “ready” = **Google rejects tile downloads** for this key
+  (restrictions / API allow-list), not a React bug.
 
-1. **Billing** — link a billing account (required even to use the free credit).
-2. Enable these APIs:
-   - **Maps SDK for Android** ← required for Android map tiles
-   - **Maps SDK for iOS** ← only if you run on iPhone with `PROVIDER_GOOGLE`
-3. On the API key:
-   - Application restriction: Android apps → package `com.camtok.mobile` + your SHA-1 (optional but recommended)
-   - API restriction: allow **Maps SDK for Android** (and iOS if used)
-4. Rebuild the app so the key is baked in:
-   ```bash
-   yarn build:dev:android
-   # or production / preview profile as needed
-   ```
+### EAS Android signing SHA-1 (must match GCP key restriction)
 
-Maps SDK map loads are covered by Google’s ~$200/mo free credit for normal usage.
+```
+d9597f77a4871dedcf1828134ff1208d6bcf8239
+```
 
-## Keep locked for now (premium / billable REST APIs)
+SHA-256 (optional):
 
-Do **not** need to enable these for a working map. Mobile destination search already prefers Nominatim; backend can keep these disabled:
+```
+56573eea1d20a4e45cdb7a4d1c32507b09c45dad0169dccf63fd8efaa812c5fb
+```
 
-| API | Used for |
-|-----|----------|
-| Places API (Autocomplete) | Destination typeahead via backend |
-| Places API (Details / Nearby) | Resolve place IDs, POIs |
-| Geocoding API | Reverse/forward geocode |
-| Directions API / Routes API | Google suggested driving routes |
-| Maps Static API | Optional; not required for SDK map |
+## Fix in Google Cloud (do this now)
 
-Backend flag reference (`camtok`): `GOOGLE_MAPS_APIS_DISABLED`, `GOOGLE_ROUTES_ENABLED`.
+Open the key used above:
+https://console.cloud.google.com/apis/credentials
 
-## Already wired in this repo
+1. **Billing** linked on that project.
+2. Enable **Maps SDK for Android** (Libraries).
+3. Edit the API key:
+   - **Application restrictions**
+     - Temporarily set to **None** to verify tiles appear, **or**
+     - **Android apps** → add:
+       - Package name: `com.camtok.mobile`
+       - SHA-1: `d9597f77a4871dedcf1828134ff1208d6bcf8239`
+     - Do **not** use “HTTP referrers” for this mobile key.
+   - **API restrictions**
+     - Include at least **Maps SDK for Android**
+     - (Places/Geocoding can stay separate / locked)
+4. Save → wait 1–5 minutes → kill & reopen the app (no rebuild needed if the
+   key string is unchanged).
 
-- `eas.json` — `GOOGLE_MAPS_ANDROID_API_KEY` on development / preview / production
-- `.env` — same key for local `app.config.js`
-- `app.config.js` — writes Android `googleMaps.apiKey` + iOS `googleMapsApiKey`
-- `LiveMap.native.tsx` — `PROVIDER_GOOGLE` (unchanged; no OSM fallback)
+## Keep locked (billable REST)
+
+Places Autocomplete / Details, Geocoding (if unused), Directions / Routes.
+
+## Already wired
+
+- `eas.json` development/preview/production → `GOOGLE_MAPS_ANDROID_API_KEY`
+- `.env` → same key for local `expo config`
+- `app.config.js` → Android + iOS native config injection

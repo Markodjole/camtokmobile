@@ -1,9 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type {
   CityGridSpec,
-  DestinationRoute,
   DriverRouteInstruction,
   GridCell,
   LiveFeedRow,
@@ -59,18 +58,35 @@ export function useDriverRoute(roomId: string | null) {
   });
 }
 
-export function useDestinationRoute(roomId: string | null) {
+export function useDestinationRoute(
+  roomId: string | null,
+  opts?: {
+    driver?: { lat: number; lng: number } | null;
+    destination?: { lat: number; lng: number } | null;
+    transportMode?: string | null;
+  },
+) {
+  const driverRef = useRef(opts?.driver ?? null);
+  driverRef.current = opts?.driver ?? null;
+  const destinationRef = useRef(opts?.destination ?? null);
+  destinationRef.current = opts?.destination ?? null;
+  const transportMode = opts?.transportMode ?? null;
+
   return useQuery({
-    queryKey: ["destination-route", roomId],
+    // Keep key stable — putting live GPS in the key aborted OSRM every few meters.
+    queryKey: ["destination-route", roomId, transportMode],
     enabled: !!roomId,
     queryFn: async ({ signal }) => {
-      return apiFetch<DestinationRoute>(
-        `/api/live/rooms/${roomId}/destination-route`,
-        { signal, anonymous: true },
-      );
+      const { resolveDestinationRoute } = await import("@/lib/osrmRoute");
+      return resolveDestinationRoute(roomId!, {
+        signal,
+        transportMode,
+        driver: driverRef.current,
+        destinationFallback: destinationRef.current,
+      });
     },
-    refetchInterval: 4000,
-    staleTime: 1_000,
+    refetchInterval: 10_000,
+    staleTime: 8_000,
   });
 }
 

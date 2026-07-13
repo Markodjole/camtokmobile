@@ -72,7 +72,6 @@ export default function RoomScreen() {
   const effectiveSessionId = room.data?.liveSessionId ?? routeSessionId ?? null;
   const routePoints = useRoutePoints(effectiveSessionId);
   const driverRoute = useDriverRoute(roomId ?? null);
-  const destinationRoute = useDestinationRoute(roomId ?? null);
   const placeBet = usePlaceBet(roomId ?? null);
   const localBroadcastSessionId = useLiveBroadcastStore((s) => s.sessionId);
   const localBroadcastRoutePoints = useLiveBroadcastStore((s) => s.routePoints);
@@ -237,6 +236,17 @@ export default function RoomScreen() {
     roomLocalPoints,
     routePoints.data,
   ]);
+
+  const lastResolvedForRoute = resolvedRoutePoints[resolvedRoutePoints.length - 1];
+  const destinationRoute = useDestinationRoute(roomId ?? null, {
+    driver: lastResolvedForRoute
+      ? { lat: lastResolvedForRoute.lat, lng: lastResolvedForRoute.lng }
+      : null,
+    destination: room.data?.destination
+      ? { lat: room.data.destination.lat, lng: room.data.destination.lng }
+      : null,
+    transportMode: room.data?.transportMode ?? null,
+  });
 
   /** Green committed path ahead of the vehicle once bets lock (driver mode). */
   const driverCommittedRoute = useMemo(() => {
@@ -518,9 +528,7 @@ export default function RoomScreen() {
               : null
           }
           destination={data.destination}
-          destinationRoute={
-            isDriverMode ? null : (destinationRoute.data?.route?.polyline ?? null)
-          }
+          destinationRoute={destinationRoute.data?.route?.polyline ?? null}
           committedRouteAhead={driverCommittedRoute}
           driverRouteBadges={driverRouteBadges}
           zones={gridZones}

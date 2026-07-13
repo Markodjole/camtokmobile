@@ -470,7 +470,7 @@ export function LiveMap({
             }}
           >
             <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              Google suggested route
+              Suggested route
             </Text>
           </View>
         ) : (

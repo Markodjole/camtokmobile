@@ -174,8 +174,11 @@ export type DestinationRoute = {
     polyline: Array<{ lat: number; lng: number }>;
     distanceMeters: number;
     durationSec: number;
+    source?: "google" | "osrm";
   } | null;
   distanceToDestinationMeters?: number;
+  source?: "google" | "osrm" | null;
+  reason?: string;
 };
 
 export type StartLiveSessionResult =

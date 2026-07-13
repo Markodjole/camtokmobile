@@ -201,6 +201,8 @@ function LiveMapInner({
   const cameraHeadingRef = useRef<number>(0);
   const lastPoseStateTsRef = useRef<number>(0);
   const hasSmoothedPoseRef = useRef(false);
+  /** Apply followZoom once when follow starts; omit later so pinch-zoom sticks. */
+  const forceFollowZoomRef = useRef(true);
   const routePointsRef = useRef(routePoints);
   routePointsRef.current = routePoints;
   const driverRouteRef = useRef(driverRoute ?? null);
@@ -257,14 +259,30 @@ function LiveMapInner({
       mapRef.current?.setCamera({
         center: { latitude: pt.lat, longitude: pt.lng },
         heading: ((rawHeading % 360) + 360) % 360,
-        pitch: 50,
+        pitch: 0,
         altitude: 250,
-        zoom: 18,
+        zoom: followZoom,
       });
     }
-  }, [mapResetKey, followDriver]);
+  }, [mapResetKey, followDriver, followZoom]);
 
-  // ── On every new raw GPS point: update velocity + heading EMAs ────────────
+  // When follow is re-enabled (recenter button), snap zoom back in once.
+  useEffect(() => {
+    if (!followDriver) return;
+    forceFollowZoomRef.current = true;
+    if (!last) return;
+    mapRef.current?.setCamera({
+      center: { latitude: last.lat, longitude: last.lng },
+      heading:
+        typeof last.heading === "number" && !Number.isNaN(last.heading)
+          ? ((last.heading % 360) + 360) % 360
+          : 0,
+      pitch: 0,
+      zoom: followZoom,
+    });
+    forceFollowZoomRef.current = false;
+  }, [followDriver]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!last) {
       poseRef.current = null;
@@ -460,13 +478,14 @@ function LiveMapInner({
           const camHeading = camCurrent + camStep;
           cameraHeadingRef.current = camHeading;
 
+          const shouldForceZoom = forceFollowZoomRef.current;
           mapRef.current?.setCamera({
             center: { latitude: newLat, longitude: newLng },
             heading: ((camHeading % 360) + 360) % 360,
             pitch: 0,
-            altitude: followZoom >= 18 ? 150 : 400,
-            zoom: followZoom,
+            ...(shouldForceZoom ? { zoom: followZoom } : {}),
           });
+          if (shouldForceZoom) forceFollowZoomRef.current = false;
           lastCameraTsRef.current = now;
         }
       }
@@ -555,11 +574,23 @@ function LiveMapInner({
         moveOnMarkerPress={false}
         rotateEnabled={false}
         pitchEnabled={false}
+        cacheEnabled
         onPanDrag={onUserInteract}
         onMapReady={() => {
           if (__DEV__) {
             // eslint-disable-next-line no-console
-            console.log("[LiveMap] Google MapView ready");
+            console.log("[LiveMap] Google MapView ready (native SDK tiles)");
+          }
+          if (followDriver && last) {
+            mapRef.current?.setCamera({
+              center: { latitude: last.lat, longitude: last.lng },
+              heading:
+                typeof last.heading === "number" && !Number.isNaN(last.heading)
+                  ? ((last.heading % 360) + 360) % 360
+                  : 0,
+              pitch: 0,
+              zoom: followZoom,
+            });
           }
         }}
       >
@@ -718,7 +749,7 @@ function LiveMapInner({
             }}
           >
             <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              Google suggested route
+              Suggested route
             </Text>
           </View>
         ) : committedCoords.length > 1 ? (

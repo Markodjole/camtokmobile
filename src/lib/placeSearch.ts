@@ -101,11 +101,12 @@ async function searchPhoton(
   };
 
   return (json.features ?? [])
-    .map((f, i) => {
+    .map((f, i): PlaceSuggestion | null => {
       const coords = f.geometry?.coordinates;
       const p = f.properties ?? {};
       if (!coords || coords.length < 2) return null;
       const [lng, lat] = coords;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
       const primary =
         p.name ||
         [p.street, p.housenumber].filter(Boolean).join(" ") ||
@@ -123,10 +124,10 @@ async function searchPhoton(
         lat,
         lng,
         label,
-        source: "nominatim" as const,
+        source: "nominatim",
       };
     })
-    .filter((s): s is PlaceSuggestion => s != null && Number.isFinite(s.lat) && Number.isFinite(s.lng));
+    .filter((s): s is PlaceSuggestion => s != null);
 }
 
 async function searchGoogleBackend(
