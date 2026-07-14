@@ -501,7 +501,6 @@ export class LeadVehiclePipeline {
         lastPass: this.lastPassSnapshot.lastPass
           ? {
               trackId: this.lastPassSnapshot.lastPass.trackId,
-              vehicleType: this.lastPassSnapshot.lastPass.vehicleType,
               timestampMs: this.lastPassSnapshot.lastPass.timestampMs,
             }
           : null,

@@ -99,9 +99,7 @@ export function LeadVehicleDebugOverlay({
           <Text style={line}>
             on screen {passCounter.vehiclesOnScreen} · passed{" "}
             {passCounter.vehiclesPassed}
-            {passCounter.lastPass
-              ? ` · +1 ${passCounter.lastPass.vehicleType}`
-              : ""}
+            {passCounter.lastPass ? " · +1" : ""}
           </Text>
           {lead ? (
             <>

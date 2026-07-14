@@ -31,10 +31,12 @@ export const DEFAULT_FORWARD_CORRIDOR: ForwardCorridor = {
 };
 
 export const DEFAULT_TRACKER_CONFIG: VehicleTrackerConfig = {
-  maxMissedFrames: 5,
-  minimumTrackAgeFrames: 3,
-  minimumIoU: 0.2,
-  trackRetentionMs: 1000,
+  // Faster driving: cars move a lot between frames — keep association looser
+  // and drop dead tracks quicker so each pass is finalized sooner.
+  maxMissedFrames: 3,
+  minimumTrackAgeFrames: 2,
+  minimumIoU: 0.12,
+  trackRetentionMs: 600,
 };
 
 export const DEFAULT_INFERENCE_FPS = 8;

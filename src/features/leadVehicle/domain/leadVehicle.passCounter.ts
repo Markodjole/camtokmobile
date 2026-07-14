@@ -1,34 +1,21 @@
-import { classifyRelativeMovement } from "./leadVehicle.motion";
 import type { TrackedVehicle } from "./leadVehicle.types";
 
-const APPROACHING = new Set([
-  "approaching",
-  "slowing_or_rider_approaching",
-]);
-
-/** Min visible time before a disappearance can count as a pass. */
-export const PASS_MIN_VISIBLE_MS = 600;
-/** Peak area must grow vs first-seen area by at least this ratio. */
-export const PASS_MIN_AREA_GROWTH = 1.35;
-/** Peak box area floor — avoids tiny/noisy far detections. */
-export const PASS_MIN_PEAK_AREA = 0.012;
+/**
+ * Ignore one-frame flicker. Anything seen longer and then gone = passed.
+ * No vehicle-type / grow / approach filters — count every vehicle.
+ */
+export const PASS_MIN_VISIBLE_MS = 120;
 
 export type VehiclePassMemory = {
   trackId: string;
-  vehicleType: string;
-  firstArea: number;
-  peakArea: number;
-  sawApproaching: boolean;
   firstSeenAtMs: number;
   lastSeenAtMs: number;
 };
 
 export type VehiclePassEvent = {
   trackId: string;
-  vehicleType: string;
   timestampMs: number;
-  peakArea: number;
-  reason: "grew_then_lost" | "approaching_then_lost";
+  reason: "vehicle_lost";
 };
 
 export type VehiclePassCounterSnapshot = {
@@ -38,9 +25,8 @@ export type VehiclePassCounterSnapshot = {
 };
 
 /**
- * Session counter: every visible vehicle ahead counts toward "on screen".
- * A pass fires when a track disappears after getting meaningfully bigger
- * (or after an approaching motion state) — grow → vanish ≈ we overtook it.
+ * Session counter: vehicles on screen + passed total.
+ * Pass = track was visible, then dropped by the tracker (left the frame).
  */
 export class VehiclePassCounter {
   private memory = new Map<string, VehiclePassMemory>();
@@ -55,21 +41,17 @@ export class VehiclePassCounter {
     this.countedPassIds.clear();
   }
 
-  /**
-   * @param tracks current tracker tracks (including briefly missed)
-   * @param removed tracks hard-deleted this frame
-   */
   observe(
     tracks: TrackedVehicle[],
     removed: TrackedVehicle[],
     nowMs: number,
   ): VehiclePassCounterSnapshot {
     for (const track of tracks) {
-      this.touch(track, nowMs);
+      this.touch(track);
     }
 
     for (const track of removed) {
-      this.touch(track, nowMs);
+      this.touch(track);
       this.finalizeLost(track.trackId, nowMs);
     }
 
@@ -89,32 +71,17 @@ export class VehiclePassCounter {
     };
   }
 
-  private touch(track: TrackedVehicle, nowMs: number): void {
-    const area = Math.max(
-      0,
-      track.boundingBox.width * track.boundingBox.height,
-    );
+  private touch(track: TrackedVehicle): void {
     const existing = this.memory.get(track.trackId);
-    const relative = classifyRelativeMovement(track, { nowMs });
-    const approaching = APPROACHING.has(relative);
-
     if (!existing) {
       this.memory.set(track.trackId, {
         trackId: track.trackId,
-        vehicleType: track.vehicleType,
-        firstArea: area || 0.0001,
-        peakArea: area,
-        sawApproaching: approaching,
         firstSeenAtMs: track.firstSeenAtMs,
         lastSeenAtMs: track.lastSeenAtMs,
       });
       return;
     }
-
-    existing.vehicleType = track.vehicleType;
-    existing.peakArea = Math.max(existing.peakArea, area);
-    existing.lastSeenAtMs = track.lastSeenAtMs;
-    if (approaching) existing.sawApproaching = true;
+    existing.lastSeenAtMs = Math.max(existing.lastSeenAtMs, track.lastSeenAtMs);
   }
 
   private finalizeLost(
@@ -131,18 +98,11 @@ export class VehiclePassCounter {
 
     const visibleMs = Math.max(0, mem.lastSeenAtMs - mem.firstSeenAtMs);
     if (visibleMs < PASS_MIN_VISIBLE_MS) return null;
-    if (mem.peakArea < PASS_MIN_PEAK_AREA) return null;
-
-    const growth = mem.peakArea / Math.max(mem.firstArea, 0.0001);
-    const grew = growth >= PASS_MIN_AREA_GROWTH;
-    if (!mem.sawApproaching && !grew) return null;
 
     const event: VehiclePassEvent = {
       trackId,
-      vehicleType: mem.vehicleType,
       timestampMs: nowMs,
-      peakArea: mem.peakArea,
-      reason: mem.sawApproaching ? "approaching_then_lost" : "grew_then_lost",
+      reason: "vehicle_lost",
     };
     this.countedPassIds.add(trackId);
     this.passed += 1;

@@ -43,7 +43,6 @@ export class LeadVehicleTelemetryClient {
       > & {
         lastPass: {
           trackId: string;
-          vehicleType: string;
           timestampMs: number;
         } | null;
       };
@@ -75,7 +74,6 @@ export class LeadVehicleTelemetryClient {
     vehiclesPassed?: number;
     lastPass?: {
       trackId: string;
-      vehicleType: string;
       timestampMs: number;
     } | null;
     lead: {
@@ -126,7 +124,6 @@ export class LeadVehicleTelemetryClient {
         lastPass: args.lastPass
           ? {
               trackId: args.lastPass.trackId,
-              vehicleType: args.lastPass.vehicleType,
               timestampMs: args.lastPass.timestampMs,
             }
           : undefined,
@@ -160,7 +157,6 @@ export class LeadVehicleTelemetryClient {
     if (counts.lastPass) {
       mapped.payload.lastPass = {
         trackId: counts.lastPass.trackId,
-        vehicleType: counts.lastPass.vehicleType,
         timestampMs: counts.lastPass.timestampMs,
       };
     }
