@@ -111,4 +111,29 @@ describe("VehiclePassCounter signed score", () => {
     c.observe([grow, shrink], [], 1000);
     expect(c.observe([], [grow, shrink], 1200).vehiclesPassed).toBe(0);
   });
+
+  it("+1 after sitting still (red light) then leaving with little size change", () => {
+    const c = new VehiclePassCounter();
+    const frames: TrackedVehicle[] = [];
+    for (let t = 0; t <= 2000; t += 200) {
+      frames.push(
+        track({
+          id: "wait",
+          t0: 0,
+          t1: t,
+          w0: 0.14,
+          h0: 0.16,
+          w1: 0.14,
+          h1: 0.16,
+        }),
+      );
+    }
+    for (const f of frames) {
+      c.observe([f], [], f.lastSeenAtMs);
+    }
+    const last = frames[frames.length - 1]!;
+    const after = c.observe([], [last], 2200);
+    expect(after.vehiclesPassed).toBe(1);
+    expect(after.lastPass?.delta).toBe(1);
+  });
 });

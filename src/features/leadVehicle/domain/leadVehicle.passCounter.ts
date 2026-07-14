@@ -3,6 +3,8 @@ import type { TrackedVehicle } from "./leadVehicle.types";
 
 /** Ignore one-frame flicker. */
 export const PASS_MIN_VISIBLE_MS = 120;
+/** How long a nearly-static sighting counts as "red light / waiting". */
+export const STABLE_RED_LIGHT_MS = 800;
 
 export type VehiclePassMemory = {
   trackId: string;
@@ -12,6 +14,9 @@ export type VehiclePassMemory = {
   peakArea: number;
   lastArea: number;
   lastRelative: string;
+  /** Accumulated ms spent looking motionless relative to us (red light queues). */
+  stableMs: number;
+  lastTouchAtMs: number;
 };
 
 export type VehiclePassEvent = {
@@ -33,6 +38,7 @@ export type VehiclePassCounterSnapshot = {
  * Net pass counter from vision tracks (type-agnostic).
  * Bigger then gone → we passed them (+1).
  * Smaller then gone → they pulled ahead / passed us (-1).
+ * Sat still with us (red light) then left frame → still counted (+1 when we clear them).
  */
 export class VehiclePassCounter {
   private memory = new Map<string, VehiclePassMemory>();
@@ -93,13 +99,27 @@ export class VehiclePassCounter {
         peakArea: area,
         lastArea: area,
         lastRelative: relative,
+        stableMs: isStillRelative(relative) ? 0 : 0,
+        lastTouchAtMs: nowMs,
       });
       return;
     }
+
+    const dt = Math.max(0, nowMs - existing.lastTouchAtMs);
+    if (isStillRelative(relative) || isStillRelative(existing.lastRelative)) {
+      // Sitting in traffic / red light — relative box barely changes.
+      const areaDelta =
+        Math.abs(area - existing.lastArea) / Math.max(existing.lastArea, 0.0001);
+      if (areaDelta < 0.12) {
+        existing.stableMs += dt;
+      }
+    }
+
     existing.lastSeenAtMs = Math.max(existing.lastSeenAtMs, track.lastSeenAtMs);
     existing.peakArea = Math.max(existing.peakArea, area);
     existing.lastArea = area;
     existing.lastRelative = relative;
+    existing.lastTouchAtMs = nowMs;
   }
 
   private finalizeLost(
@@ -131,6 +151,14 @@ export class VehiclePassCounter {
   }
 }
 
+function isStillRelative(rel: string): boolean {
+  return (
+    rel === "stable_ahead" ||
+    rel === "uncertain" ||
+    rel === "temporarily_occluded"
+  );
+}
+
 function resolvePassDelta(mem: VehiclePassMemory): 1 | -1 {
   const rel = mem.lastRelative;
   if (
@@ -143,18 +171,24 @@ function resolvePassDelta(mem: VehiclePassMemory): 1 | -1 {
     return -1;
   }
 
-  // Fall back to box size change over the whole sighting.
   const growth = mem.lastArea / Math.max(mem.firstArea, 0.0001);
   if (growth >= 1.08 || mem.peakArea >= mem.firstArea * 1.2) {
-    // Got bigger (closer) before leaving → we passed them.
     return 1;
   }
   if (growth <= 0.92) {
-    // Got smaller (pulled ahead) → they passed us.
     return -1;
   }
 
-  // Lateral exit with unclear size: large on screen → we sliced past; small → they slipped ahead.
+  // Red light / stopped traffic: sat still with us, then left the frame
+  // (you rolled past the queue, or they peeled off after the light).
+  if (
+    mem.stableMs >= STABLE_RED_LIGHT_MS ||
+    rel === "stable_ahead" ||
+    isStillRelative(rel)
+  ) {
+    return 1;
+  }
+
   if (mem.lastArea >= 0.04 || mem.peakArea >= 0.05) return 1;
   return -1;
 }
