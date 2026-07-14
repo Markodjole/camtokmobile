@@ -5,6 +5,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:tunnel": "node scripts/start-tunnel.mjs",
     "ios": "expo run:ios",
     "android": "expo run:android --device",
     "build:dev:android": "eas build --profile development --platform android",

@@ -48,9 +48,10 @@ export class LeadVehicleTracker {
   update(
     detections: VehicleDetection[],
     timestampMs: number,
-  ): TrackedVehicle[] {
+  ): { tracks: TrackedVehicle[]; removed: TrackedVehicle[] } {
     const unmatchedTracks = new Set(this.tracks.keys());
     const usedDetections = new Set<number>();
+    const removed: TrackedVehicle[] = [];
 
     // Greedy IoU association, prefer same class.
     const pairs: { trackId: VehicleTrackId; detIdx: number; score: number }[] =
@@ -85,6 +86,7 @@ export class LeadVehicleTracker {
         missed > this.config.maxMissedFrames ||
         timestampMs - track.lastSeenAtMs > this.config.trackRetentionMs
       ) {
+        removed.push(track);
         this.tracks.delete(trackId);
       } else {
         this.tracks.set(trackId, {
@@ -123,7 +125,7 @@ export class LeadVehicleTracker {
       });
     });
 
-    return this.getTracks();
+    return { tracks: this.getTracks(), removed };
   }
 
   matureTracks(): TrackedVehicle[] {

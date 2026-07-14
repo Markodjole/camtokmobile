@@ -285,15 +285,24 @@ export interface LeadVehicleTelemetryEvent {
     predictionConfidence?: number;
     predictionReasons?: string[];
     predictionBlockers?: string[];
-    /** All visible vehicle boxes for viewer overlay (lead + others). */
-    detections?: Array<{
-      trackId?: string;
-      vehicleType?: SupportedVehicleType;
-      confidence?: number;
-      isLead?: boolean;
-      normalizedBoundingBox: NormalizedBoundingBox;
-    }>;
-  };
+      /** All visible vehicle boxes for viewer overlay (lead + others). */
+      detections?: Array<{
+        trackId?: string;
+        vehicleType?: SupportedVehicleType;
+        confidence?: number;
+        isLead?: boolean;
+        normalizedBoundingBox: NormalizedBoundingBox;
+      }>;
+      /** Vehicles currently visible on screen (ahead of rider). */
+      vehiclesOnScreen?: number;
+      /** Session total of vehicles passed (grew then lost). */
+      vehiclesPassed?: number;
+      lastPass?: {
+        trackId: string;
+        vehicleType?: SupportedVehicleType | string;
+        timestampMs: number;
+      };
+    };
   modelMetadata: {
     modelName: string;
     modelVersion: string;

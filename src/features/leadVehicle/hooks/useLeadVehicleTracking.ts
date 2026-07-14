@@ -118,6 +118,11 @@ export function useLeadVehicleTracking(
         },
         scoreBreakdown: null,
         corridor: useLeadVehicleStore.getState().corridor,
+        passCounter: {
+          vehiclesOnScreen: 0,
+          vehiclesPassed: 0,
+          lastPass: null,
+        },
         error: null,
       },
     );

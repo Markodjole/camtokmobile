@@ -5,6 +5,7 @@ import {
 } from "../domain/leadVehicle.constants";
 import { lateralPositionFromX } from "../domain/leadVehicle.geometry";
 import { classifyRelativeMovement } from "../domain/leadVehicle.motion";
+import { VehiclePassCounter } from "../domain/leadVehicle.passCounter";
 import { computePredictionReadiness } from "../domain/leadVehicle.prediction";
 import {
   estimateSameDirectionConfidence,
@@ -24,6 +25,7 @@ import type {
   VehicleDetection,
   VehicleFrameInput,
 } from "../domain/leadVehicle.types";
+import type { VehiclePassCounterSnapshot } from "../domain/leadVehicle.passCounter";
 import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
 import { createVehicleInferenceEngine } from "./createVehicleInferenceEngine";
 import { LeadVehicleEventEmitter } from "./LeadVehicleEventEmitter";
@@ -52,6 +54,7 @@ export type LeadVehiclePipelineSnapshot = {
   metrics: LeadVehicleRuntimeMetrics;
   scoreBreakdown: ReturnType<typeof scoreLeadVehicle> | null;
   corridor: ForwardCorridor;
+  passCounter: VehiclePassCounterSnapshot;
   error: Error | null;
 };
 
@@ -62,6 +65,7 @@ export type LeadVehiclePipelineSnapshot = {
 export class LeadVehiclePipeline {
   private engine: VehicleInferenceEngine;
   private tracker = new LeadVehicleTracker();
+  private passCounter = new VehiclePassCounter();
   private events = new LeadVehicleEventEmitter();
   private telemetry: LeadVehicleTelemetryClient;
   private status: LeadVehicleTrackingState = "idle";
@@ -79,6 +83,11 @@ export class LeadVehiclePipeline {
   private inferenceTimes: number[] = [];
   private lastDetections: VehicleDetection[] = [];
   private lastScore: ReturnType<typeof scoreLeadVehicle> | null = null;
+  private lastPassSnapshot: VehiclePassCounterSnapshot = {
+    vehiclesOnScreen: 0,
+    vehiclesPassed: 0,
+    lastPass: null,
+  };
   private error: Error | null = null;
   private telemetrySnap: RiderTelemetrySnapshot | undefined;
   private corridor: ForwardCorridor;
@@ -114,6 +123,7 @@ export class LeadVehiclePipeline {
             normalizedBoundingBox: t.boundingBox,
           }));
       },
+      getPassCounts: () => this.lastPassSnapshot,
     });
     this.events.subscribe((ev) => {
       void this.telemetry.publish(ev);
@@ -152,6 +162,12 @@ export class LeadVehiclePipeline {
     }
     this.error = null;
     this.tracker.reset();
+    this.passCounter.reset();
+    this.lastPassSnapshot = {
+      vehiclesOnScreen: 0,
+      vehiclesPassed: 0,
+      lastPass: null,
+    };
     this.events.reset();
     this.leadTrackId = null;
     this.previousLead = null;
@@ -296,6 +312,7 @@ export class LeadVehiclePipeline {
       metrics: this.metrics(),
       scoreBreakdown: this.lastScore,
       corridor: this.corridor,
+      passCounter: this.lastPassSnapshot,
       error: this.error,
     };
   }
@@ -364,8 +381,14 @@ export class LeadVehiclePipeline {
     _inferenceMs: number,
   ): Promise<void> {
     this.lastDetections = detections;
-    const tracks = this.tracker.update(detections, timestampMs);
+    const { tracks, removed } = this.tracker.update(detections, timestampMs);
     const mature = this.tracker.matureTracks();
+
+    this.lastPassSnapshot = this.passCounter.observe(
+      tracks,
+      removed,
+      timestampMs,
+    );
 
     let best: TrackedVehicle | null = null;
     let bestScore = -1;
@@ -473,6 +496,15 @@ export class LeadVehiclePipeline {
         rideId: this.opts.rideId,
         sessionId: this.opts.sessionId,
         timestampMs,
+        vehiclesOnScreen: this.lastPassSnapshot.vehiclesOnScreen,
+        vehiclesPassed: this.lastPassSnapshot.vehiclesPassed,
+        lastPass: this.lastPassSnapshot.lastPass
+          ? {
+              trackId: this.lastPassSnapshot.lastPass.trackId,
+              vehicleType: this.lastPassSnapshot.lastPass.vehicleType,
+              timestampMs: this.lastPassSnapshot.lastPass.timestampMs,
+            }
+          : null,
         lead: overlayLead
           ? (() => {
               const snap = this.toSnapshot(overlayLead, timestampMs);

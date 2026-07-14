@@ -6,6 +6,7 @@ import type {
   SupportedVehicleType,
 } from "../domain/leadVehicle.types";
 import { DEFAULT_LEAD_VEHICLE_MODEL_CONFIG } from "../domain/leadVehicle.constants";
+import type { VehiclePassCounterSnapshot } from "../domain/leadVehicle.passCounter";
 
 export type LeadVehicleOverlayDetection = {
   trackId?: string;
@@ -36,6 +37,16 @@ export class LeadVehicleTelemetryClient {
         blockers: string[];
       } | null;
       getOverlayDetections?: () => LeadVehicleOverlayDetection[];
+      getPassCounts?: () => Pick<
+        VehiclePassCounterSnapshot,
+        "vehiclesOnScreen" | "vehiclesPassed"
+      > & {
+        lastPass: {
+          trackId: string;
+          vehicleType: string;
+          timestampMs: number;
+        } | null;
+      };
     },
   ) {}
 
@@ -51,6 +62,7 @@ export class LeadVehicleTelemetryClient {
       inferenceMode: this.inferenceMode(),
     });
     if (!mapped) return;
+    this.attachPassCounts(mapped);
     await this.send(mapped);
   }
 
@@ -59,6 +71,13 @@ export class LeadVehicleTelemetryClient {
     rideId: string;
     sessionId: string;
     timestampMs: number;
+    vehiclesOnScreen?: number;
+    vehiclesPassed?: number;
+    lastPass?: {
+      trackId: string;
+      vehicleType: string;
+      timestampMs: number;
+    } | null;
     lead: {
       trackId: string;
       vehicleType: SupportedVehicleType;
@@ -73,15 +92,15 @@ export class LeadVehicleTelemetryClient {
     if (!this.opts.enabled) return;
     const detections = this.opts.getOverlayDetections?.() ?? [];
     if (!args.lead && detections.length === 0) {
-      // Still clear remote overlay if we previously had detections.
-      if (!this.hadDetections) return;
+      // Still clear remote overlay if we previously had detections / counters.
+      if (!this.hadDetections && (args.vehiclesPassed ?? 0) === 0) return;
       this.hadDetections = false;
     } else {
       this.hadDetections = detections.length > 0 || !!args.lead;
     }
 
     const mapped: LeadVehicleTelemetryEvent = {
-      eventType: args.lead ? "lead_vehicle_updated" : "lead_vehicle_updated",
+      eventType: "lead_vehicle_updated",
       rideId: args.rideId,
       riderId: this.opts.riderId,
       sessionId: args.sessionId,
@@ -93,13 +112,24 @@ export class LeadVehicleTelemetryClient {
               vehicleType: args.lead.vehicleType,
               confidence: args.lead.confidence,
               sameDirectionConfidence: args.lead.sameDirectionConfidence,
-              relativeState: args.lead.relativeState as LeadVehicleTelemetryEvent["payload"]["relativeState"],
+              relativeState:
+                args.lead
+                  .relativeState as LeadVehicleTelemetryEvent["payload"]["relativeState"],
               visibleDurationMs: args.lead.visibleDurationMs,
               lateralPosition: args.lead.lateralPosition,
               normalizedBoundingBox: args.lead.boundingBox,
             }
           : {}),
         detections,
+        vehiclesOnScreen: args.vehiclesOnScreen,
+        vehiclesPassed: args.vehiclesPassed,
+        lastPass: args.lastPass
+          ? {
+              trackId: args.lastPass.trackId,
+              vehicleType: args.lastPass.vehicleType,
+              timestampMs: args.lastPass.timestampMs,
+            }
+          : undefined,
       },
       modelMetadata: {
         modelName:
@@ -122,6 +152,20 @@ export class LeadVehicleTelemetryClient {
 
   private hadDetections = false;
 
+  private attachPassCounts(mapped: LeadVehicleTelemetryEvent): void {
+    const counts = this.opts.getPassCounts?.();
+    if (!counts) return;
+    mapped.payload.vehiclesOnScreen = counts.vehiclesOnScreen;
+    mapped.payload.vehiclesPassed = counts.vehiclesPassed;
+    if (counts.lastPass) {
+      mapped.payload.lastPass = {
+        trackId: counts.lastPass.trackId,
+        vehicleType: counts.lastPass.vehicleType,
+        timestampMs: counts.lastPass.timestampMs,
+      };
+    }
+  }
+
   private async send(mapped: LeadVehicleTelemetryEvent): Promise<void> {
     const readiness = this.opts.getPredictionReadiness?.() ?? null;
     if (readiness && mapped.payload.predictionReady == null) {
@@ -130,6 +174,7 @@ export class LeadVehicleTelemetryClient {
       mapped.payload.predictionReasons = readiness.reasons;
       mapped.payload.predictionBlockers = readiness.blockers;
     }
+    this.attachPassCounts(mapped);
     if (this.opts.includeBoundingBoxes) {
       const dets = this.opts.getOverlayDetections?.() ?? [];
       if (dets.length > 0) {

@@ -29,6 +29,7 @@ export function LeadVehicleDebugOverlay({
   const metrics = useLeadVehicleStore((s) => s.metrics);
   const score = useLeadVehicleStore((s) => s.scoreBreakdown);
   const corridor = useLeadVehicleStore((s) => s.corridor);
+  const passCounter = useLeadVehicleStore((s) => s.passCounter);
 
   if (!enabled || !visible) return null;
 
@@ -94,6 +95,13 @@ export function LeadVehicleDebugOverlay({
           </Text>
           <Text style={line}>
             tracks {metrics.trackerCount} · drop {metrics.droppedAnalysisFrames}
+          </Text>
+          <Text style={line}>
+            on screen {passCounter.vehiclesOnScreen} · passed{" "}
+            {passCounter.vehiclesPassed}
+            {passCounter.lastPass
+              ? ` · +1 ${passCounter.lastPass.vehicleType}`
+              : ""}
           </Text>
           {lead ? (
             <>
