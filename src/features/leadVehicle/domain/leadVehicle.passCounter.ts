@@ -1,8 +1,8 @@
 import { classifyRelativeMovement } from "./leadVehicle.motion";
 import type { TrackedVehicle } from "./leadVehicle.types";
 
-/** Ignore one-frame flicker. */
-export const PASS_MIN_VISIBLE_MS = 120;
+/** Ignore sub-3-frame flicker at ~15 FPS. */
+export const PASS_MIN_VISIBLE_MS = 200;
 /** How long a nearly-static sighting counts as "red light / waiting". */
 export const STABLE_RED_LIGHT_MS = 800;
 

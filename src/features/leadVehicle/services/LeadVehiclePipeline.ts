@@ -2,6 +2,7 @@ import {
   DEFAULT_FORWARD_CORRIDOR,
   DEFAULT_INFERENCE_FPS,
   DEFAULT_LEAD_VEHICLE_MODEL_CONFIG,
+  EVENT_HEARTBEAT_MS,
 } from "../domain/leadVehicle.constants";
 import { lateralPositionFromX } from "../domain/leadVehicle.geometry";
 import { classifyRelativeMovement } from "../domain/leadVehicle.motion";
@@ -487,7 +488,7 @@ export class LeadVehiclePipeline {
 
     this.notify();
 
-    if (timestampMs - this.lastOverlayPushMs >= 400) {
+    if (timestampMs - this.lastOverlayPushMs >= EVENT_HEARTBEAT_MS) {
       this.lastOverlayPushMs = timestampMs;
       const overlayLead = this.leadTrackId
         ? this.tracker.getTracks().find((t) => t.trackId === this.leadTrackId)
@@ -569,9 +570,14 @@ export class LeadVehiclePipeline {
       const dt = (last - first) / 1000;
       if (dt > 0) fps = (this.inferenceTimes.length - 1) / dt;
     }
-    // Adaptive throttle hint
-    if (avg > 120 && this.inferenceFps > 4) {
-      this.inferenceFps = Math.max(4, this.inferenceFps - 1);
+    // Adaptive throttle: back off under load, recover toward target when healthy.
+    if (avg > 100 && this.inferenceFps > 8) {
+      this.inferenceFps = Math.max(8, this.inferenceFps - 1);
+      if (this.opts.inferenceMode === "mock" && this.timer) {
+        this.startMockPump();
+      }
+    } else if (avg > 0 && avg < 55 && this.inferenceFps < DEFAULT_INFERENCE_FPS) {
+      this.inferenceFps = Math.min(DEFAULT_INFERENCE_FPS, this.inferenceFps + 1);
       if (this.opts.inferenceMode === "mock" && this.timer) {
         this.startMockPump();
       }
