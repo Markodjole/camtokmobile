@@ -4,14 +4,16 @@ import type {
   VehicleDetection,
 } from "./leadVehicle.types";
 
-/** Need at least this many matched frames before a disappearance counts. */
-export const PASS_MIN_HITS = 2;
+/** Count after this many sightings — 1 = split-second roadside flybys. */
+export const PASS_MIN_HITS = 1;
 /** How far (normalized) a box center can move and still be the same vehicle. */
-export const PASS_MATCH_DIST = 0.28;
-/** Finalize after this many missed frames (~2 @ 15–20 FPS). */
-export const PASS_MAX_MISSES = 2;
+export const PASS_MATCH_DIST = 0.36;
+/** Finalize after this many missed frames (1 = next blank frame counts it). */
+export const PASS_MAX_MISSES = 1;
 /** Tiny boxes are usually noise. */
-export const PASS_MIN_AREA = 0.004;
+export const PASS_MIN_AREA = 0.0035;
+/** Single-frame flybys need at least this size to count (reduces noise). */
+export const PASS_SINGLE_HIT_MIN_AREA = 0.008;
 
 export type VehiclePassEvent = {
   trackId: string;
@@ -168,11 +170,12 @@ export class VehiclePassCounter {
     blob.lastCenterY = c.y;
     blob.lastBox = box;
 
-    // Early pass: blew past us toward the bottom of the frame while growing.
+    // Early pass: blew past us toward the bottom of the frame.
     if (
-      blob.hits >= PASS_MIN_HITS &&
-      c.y > 0.88 &&
-      (area > blob.firstArea * 1.15 || blob.peakArea > blob.firstArea * 1.25)
+      blob.hits >= 1 &&
+      c.y > 0.82 &&
+      blob.peakArea >= PASS_SINGLE_HIT_MIN_AREA &&
+      (area > blob.firstArea * 1.08 || blob.hits >= 2)
     ) {
       this.finalize(blob, nowMs, 1);
       this.blobs.delete(blob.id);
@@ -186,6 +189,8 @@ export class VehiclePassCounter {
   ): void {
     if (this.finalized.has(blob.id)) return;
     if (blob.hits < PASS_MIN_HITS) return;
+    // One-glance flyby: require a real-sized box so 1px flicker is ignored.
+    if (blob.hits === 1 && blob.peakArea < PASS_SINGLE_HIT_MIN_AREA) return;
     this.finalized.add(blob.id);
 
     const delta = forcedDelta ?? resolveDelta(blob);

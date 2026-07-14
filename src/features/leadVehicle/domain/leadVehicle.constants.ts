@@ -39,7 +39,7 @@ export const DEFAULT_TRACKER_CONFIG: VehicleTrackerConfig = {
 };
 
 /** Target analysis rate — also mirrored in native LeadVehicleFrameAnalyzer. */
-export const DEFAULT_INFERENCE_FPS = 20;
+export const DEFAULT_INFERENCE_FPS = 25;
 
 export const LEAD_SWITCH_SCORE_MARGIN = 0.15;
 export const LEAD_SWITCH_CONFIRMATION_MS = 500;

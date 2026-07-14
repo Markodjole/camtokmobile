@@ -53,9 +53,22 @@ describe("VehiclePassCounter (detection-based)", () => {
     expect(after.lastPass?.delta).toBe(-1);
   });
 
-  it("ignores single-frame flicker", () => {
+  it("counts a single-frame sizable flyby as +1", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.4, 0.12, 0.12)], 0);
-    expect(c.observeDetections([], 200).vehiclesPassed).toBe(0);
+    c.observeDetections([det(0.35, 0.5, 0.12, 0.14)], 0);
+    expect(c.observeDetections([], 80).vehiclesPassed).toBe(1);
+  });
+
+  it("ignores tiny single-frame flicker", () => {
+    const c = new VehiclePassCounter();
+    c.observeDetections([det(0.4, 0.4, 0.04, 0.04)], 0);
+    expect(c.observeDetections([], 80).vehiclesPassed).toBe(0);
+  });
+
+  it("ignores weak single-frame flicker below size floor", () => {
+    const c = new VehiclePassCounter();
+    // area 0.04*0.04 = 0.0016 < single-hit floor
+    c.observeDetections([det(0.45, 0.45, 0.05, 0.05, 0.9)], 0);
+    expect(c.observeDetections([], 100).vehiclesPassed).toBe(0);
   });
 });
