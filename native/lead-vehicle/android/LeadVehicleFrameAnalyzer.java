@@ -30,9 +30,9 @@ public final class LeadVehicleFrameAnalyzer {
     private static final String MODEL_ASSET = "models/coco_ssd_mobilenet_v1.tflite";
     private static final int INPUT_SIZE = 300;
     private static final int NUM_DETECTIONS = 10;
-    private static final float MIN_SCORE = 0.4f;
-    /** ~15 FPS — balance speed vs false detections. */
-    private static final long MIN_INTERVAL_MS = 66L;
+    private static final float MIN_SCORE = 0.5f;
+    /** ~18 FPS — enough samples for accurate motion without heavy thermal cost. */
+    private static final long MIN_INTERVAL_MS = 55L;
 
     /** COCO label indices we care about (1-based in labelmap; 0 = ???). */
     private static final int CLASS_BICYCLE = 2;

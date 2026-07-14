@@ -10,7 +10,7 @@ export const DEFAULT_LEAD_VEHICLE_MODEL_CONFIG: LeadVehicleModelConfig = {
   modelVersion: "1.0_quant_2018_06_29",
   inputWidth: 300,
   inputHeight: 300,
-  minimumDetectionConfidence: 0.4,
+  minimumDetectionConfidence: 0.5,
   supportedClasses: [
     "car",
     "motorcycle",
@@ -39,7 +39,7 @@ export const DEFAULT_TRACKER_CONFIG: VehicleTrackerConfig = {
 };
 
 /** Target analysis rate — also mirrored in native LeadVehicleFrameAnalyzer. */
-export const DEFAULT_INFERENCE_FPS = 15;
+export const DEFAULT_INFERENCE_FPS = 18;
 
 export const LEAD_SWITCH_SCORE_MARGIN = 0.15;
 export const LEAD_SWITCH_CONFIRMATION_MS = 500;

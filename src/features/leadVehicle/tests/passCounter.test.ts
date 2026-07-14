@@ -16,62 +16,58 @@ function det(
   };
 }
 
-describe("VehiclePassCounter (reliable)", () => {
-  it("+1 when a vehicle grows then disappears", () => {
+describe("VehiclePassCounter accuracy-first", () => {
+  it("+1 for clear grow + move-down overtake", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.35, 0.1, 0.1)], 0);
-    c.observeDetections([det(0.4, 0.45, 0.14, 0.14)], 80);
-    c.observeDetections([det(0.4, 0.55, 0.2, 0.2)], 160);
-    c.observeDetections([], 280);
-    const after = c.observeDetections([], 400);
-    expect(after.vehiclesPassed).toBe(1);
-    expect(after.lastPass?.delta).toBe(1);
+    c.observeDetections([det(0.4, 0.32, 0.1, 0.1)], 0);
+    c.observeDetections([det(0.4, 0.42, 0.13, 0.13)], 60);
+    c.observeDetections([det(0.4, 0.55, 0.17, 0.17)], 120);
+    c.observeDetections([det(0.4, 0.72, 0.22, 0.22)], 180);
+    c.observeDetections([det(0.4, 0.86, 0.26, 0.26)], 240);
+    expect(c.snapshot().vehiclesPassed).toBe(1);
   });
 
-  it("-1 when a vehicle lingers then shrinks (they passed us)", () => {
+  it("-1 for linger + multi-step shrink (they passed us)", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.5, 0.22, 0.22)], 0);
-    c.observeDetections([det(0.4, 0.48, 0.18, 0.18)], 100);
-    c.observeDetections([det(0.4, 0.46, 0.15, 0.15)], 200);
-    c.observeDetections([det(0.4, 0.44, 0.12, 0.12)], 350);
-    c.observeDetections([det(0.4, 0.42, 0.09, 0.09)], 500);
-    c.observeDetections([], 600);
-    const after = c.observeDetections([], 700);
-    expect(after.vehiclesPassed).toBe(-1);
+    c.observeDetections([det(0.4, 0.48, 0.24, 0.24)], 0);
+    c.observeDetections([det(0.4, 0.47, 0.2, 0.2)], 80);
+    c.observeDetections([det(0.4, 0.46, 0.17, 0.17)], 160);
+    c.observeDetections([det(0.4, 0.45, 0.14, 0.14)], 280);
+    c.observeDetections([det(0.4, 0.44, 0.11, 0.11)], 400);
+    c.observeDetections([det(0.4, 0.43, 0.09, 0.09)], 520);
+    c.observeDetections([], 620);
+    expect(c.observeDetections([], 720).vehiclesPassed).toBe(-1);
   });
 
-  it("ignores single-frame flash", () => {
+  it("does not score weak / no-motion tracks", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.35, 0.5, 0.15, 0.15)], 0);
-    expect(c.observeDetections([], 80).vehiclesPassed).toBe(0);
-  });
-
-  it("ignores disappearance with no grow/shrink evidence", () => {
-    const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.4, 0.12, 0.12)], 0);
-    c.observeDetections([det(0.4, 0.4, 0.12, 0.12)], 80);
-    c.observeDetections([det(0.4, 0.4, 0.12, 0.12)], 160);
-    c.observeDetections([], 280);
+    c.observeDetections([det(0.4, 0.4, 0.14, 0.14)], 0);
+    c.observeDetections([det(0.4, 0.4, 0.14, 0.14)], 60);
+    c.observeDetections([det(0.4, 0.4, 0.14, 0.14)], 120);
+    c.observeDetections([det(0.4, 0.4, 0.14, 0.14)], 180);
+    c.observeDetections([], 300);
     expect(c.observeDetections([], 400).vehiclesPassed).toBe(0);
   });
 
-  it("ignores mass wipe when covering the camera", () => {
+  it("does not score single-frame or low-confidence noise", () => {
     const c = new VehiclePassCounter();
-    // Three stable-ish cars that all vanish together.
-    const a = [det(0.2, 0.4, 0.12, 0.14), det(0.45, 0.4, 0.12, 0.14), det(0.7, 0.4, 0.12, 0.14)];
-    c.observeDetections(a, 0);
-    c.observeDetections(a, 80);
-    c.observeDetections(a, 160);
-    c.observeDetections([], 280);
-    expect(c.observeDetections([], 400).vehiclesPassed).toBe(0);
+    c.observeDetections([det(0.4, 0.5, 0.2, 0.2, 0.3)], 0);
+    c.observeDetections([], 50);
+    expect(c.observeDetections([], 100).vehiclesPassed).toBe(0);
   });
 
-  it("still counts a real grow flyby among traffic", () => {
+  it("skips mass camera-cover wipe", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.35, 0.1, 0.1)], 0);
-    c.observeDetections([det(0.4, 0.5, 0.16, 0.16)], 70);
-    c.observeDetections([det(0.4, 0.65, 0.22, 0.22)], 140);
-    c.observeDetections([], 260);
-    expect(c.observeDetections([], 380).vehiclesPassed).toBe(1);
+    const frame = [
+      det(0.2, 0.4, 0.13, 0.14),
+      det(0.45, 0.4, 0.13, 0.14),
+      det(0.7, 0.4, 0.13, 0.14),
+    ];
+    c.observeDetections(frame, 0);
+    c.observeDetections(frame, 60);
+    c.observeDetections(frame, 120);
+    c.observeDetections(frame, 180);
+    c.observeDetections([], 300);
+    expect(c.observeDetections([], 400).vehiclesPassed).toBe(0);
   });
 });

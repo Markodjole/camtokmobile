@@ -4,24 +4,31 @@ import type {
   VehicleDetection,
 } from "./leadVehicle.types";
 
-/** Need a short track — kills single-frame noise / covered-camera flashes. */
-export const PASS_MIN_HITS = 3;
-export const PASS_MATCH_DIST = 0.25;
-export const PASS_MAX_MISSES = 2;
-export const PASS_MIN_AREA = 0.01;
-export const PASS_MIN_CONFIDENCE = 0.45;
-/** Must grow at least this much vs first sighting to count as we-passed. */
-export const WE_PASSED_MIN_GROWTH = 1.2;
-/** Or move downward in frame at least this much (closer / under us). */
-export const WE_PASSED_MIN_DOWN = 0.08;
-export const THEY_PASSED_MIN_HITS = 5;
-export const THEY_PASSED_MIN_MS = 400;
-export const THEY_PASSED_MAX_GROWTH = 0.82;
 /**
- * If this many blobs die in one empty frame, treat as camera cover / wipe —
- * do not score them (avoids +10 when you palm the lens).
+ * Accuracy-first motorcycle pass scorer.
+ * Prefer miss over wrong: no evidence → no score.
  */
+
+export const PASS_MIN_CONFIDENCE = 0.5;
+export const PASS_MIN_AREA = 0.012;
+export const PASS_MATCH_DIST = 0.22;
+export const PASS_MAX_MISSES = 2;
+
+/** We-overtake: need a short but real track + clear close-up signature. */
+export const WE_MIN_HITS = 4;
+export const WE_MIN_GROWTH = 1.25;
+export const WE_MIN_DOWN = 0.1;
+/** Commit +1 early once the vehicle is clearly under us / leaving bottom. */
+export const WE_EARLY_Y = 0.78;
+
+/** They-overtake: longer linger + clear shrink into the distance. */
+export const THEY_MIN_HITS = 6;
+export const THEY_MIN_MS = 450;
+export const THEY_MAX_END_GROWTH = 0.75;
+export const THEY_MIN_SHRINK_STEPS = 3;
+
 export const MASS_LOSS_SKIP = 3;
+export const AREA_HISTORY = 8;
 
 export type VehiclePassEvent = {
   trackId: string;
@@ -48,16 +55,13 @@ type PassBlob = {
   firstCenterY: number;
   lastCenterY: number;
   peakConfidence: number;
+  areas: number[];
+  centersY: number[];
   lastBox: NormalizedBoundingBox;
 };
 
 let nextPassId = 1;
 
-/**
- * Conservative motorcycle POV counter.
- * Only scores tracks with clear grow/down (+1) or linger+shrink (−1).
- * Mass simultaneous loss (cover camera) is ignored.
- */
 export class VehiclePassCounter {
   private blobs = new Map<string, PassBlob>();
   private passed = 0;
@@ -81,10 +85,10 @@ export class VehiclePassCounter {
       return a >= PASS_MIN_AREA && d.confidence >= PASS_MIN_CONFIDENCE;
     });
 
-    const unmatchedBlobs = new Set(this.blobs.keys());
+    const unmatched = new Set(this.blobs.keys());
     const usedDet = new Set<number>();
-
     const pairs: { blobId: string; detIdx: number; dist: number }[] = [];
+
     for (const [blobId, blob] of this.blobs) {
       usable.forEach((det, detIdx) => {
         const c = boxCenter(det.boundingBox);
@@ -97,26 +101,25 @@ export class VehiclePassCounter {
     pairs.sort((a, b) => a.dist - b.dist);
 
     for (const pair of pairs) {
-      if (!unmatchedBlobs.has(pair.blobId) || usedDet.has(pair.detIdx)) continue;
-      unmatchedBlobs.delete(pair.blobId);
+      if (!unmatched.has(pair.blobId) || usedDet.has(pair.detIdx)) continue;
+      unmatched.delete(pair.blobId);
       usedDet.add(pair.detIdx);
       this.bump(this.blobs.get(pair.blobId)!, usable[pair.detIdx]!, nowMs);
     }
 
     const dying: PassBlob[] = [];
-    for (const blobId of unmatchedBlobs) {
-      const blob = this.blobs.get(blobId)!;
+    for (const id of unmatched) {
+      const blob = this.blobs.get(id)!;
       blob.misses += 1;
       if (blob.misses >= PASS_MAX_MISSES) {
         dying.push(blob);
-        this.blobs.delete(blobId);
+        this.blobs.delete(id);
       }
     }
 
-    // Camera covered / all vehicles wiped at once → don't score the pile-on.
     const massWipe = usable.length === 0 && dying.length >= MASS_LOSS_SKIP;
     for (const blob of dying) {
-      this.finalize(blob, nowMs, massWipe ? "skip" : undefined);
+      this.tryScore(blob, nowMs, massWipe ? "skip" : "lost");
     }
 
     usable.forEach((det, idx) => {
@@ -137,23 +140,16 @@ export class VehiclePassCounter {
         firstCenterY: c.y,
         lastCenterY: c.y,
         peakConfidence: det.confidence,
+        areas: [area],
+        centersY: [c.y],
         lastBox: box,
       });
     });
 
-    return {
-      vehiclesOnScreen: [...this.blobs.values()].filter((b) => b.misses === 0)
-        .length,
-      vehiclesPassed: this.passed,
-      lastPass: this.lastPass,
-    };
+    return this.snapshot();
   }
 
-  observe(
-    _tracks: unknown,
-    _removed: unknown,
-    _nowMs: number,
-  ): VehiclePassCounterSnapshot {
+  observe(): VehiclePassCounterSnapshot {
     return this.snapshot();
   }
 
@@ -178,66 +174,93 @@ export class VehiclePassCounter {
     blob.lastCenterY = c.y;
     blob.peakConfidence = Math.max(blob.peakConfidence, det.confidence);
     blob.lastBox = box;
+    blob.areas.push(area);
+    blob.centersY.push(c.y);
+    if (blob.areas.length > AREA_HISTORY) blob.areas.shift();
+    if (blob.centersY.length > AREA_HISTORY) blob.centersY.shift();
 
-    // Confirmed overtake through bottom of frame + growth.
-    if (
-      blob.hits >= PASS_MIN_HITS &&
-      c.y > 0.85 &&
-      blob.peakArea / blob.firstArea >= WE_PASSED_MIN_GROWTH
-    ) {
-      this.finalize(blob, nowMs, 1);
+    // Fast, high-confidence we-passed: clearly growing and exiting bottom.
+    if (isStrongWePassed(blob) && c.y >= WE_EARLY_Y) {
+      this.tryScore(blob, nowMs, "early_we");
       this.blobs.delete(blob.id);
     }
   }
 
-  private finalize(
+  private tryScore(
     blob: PassBlob,
     nowMs: number,
-    forced: 1 | -1 | "skip" | undefined = undefined,
+    mode: "lost" | "early_we" | "skip",
   ): void {
     if (this.finalized.has(blob.id)) return;
-    if (forced === "skip") {
+    if (mode === "skip") {
       this.finalized.add(blob.id);
       return;
     }
-    if (blob.hits < PASS_MIN_HITS) return;
-    if (blob.peakConfidence < PASS_MIN_CONFIDENCE) return;
+    if (blob.peakConfidence < PASS_MIN_CONFIDENCE) {
+      this.finalized.add(blob.id);
+      return;
+    }
 
-    const delta = forced === 1 || forced === -1 ? forced : resolveDelta(blob);
+    let delta: 1 | -1 | null = null;
+    if (mode === "early_we") {
+      delta = isStrongWePassed(blob) ? 1 : null;
+    } else {
+      delta = decideOnLoss(blob);
+    }
     if (delta == null) {
       this.finalized.add(blob.id);
       return;
     }
 
     this.finalized.add(blob.id);
-    const event: VehiclePassEvent = {
+    this.passed += delta;
+    this.lastPass = {
       trackId: blob.id,
       timestampMs: nowMs,
       delta,
       reason: delta === 1 ? "we_passed" : "they_passed",
     };
-    this.passed += delta;
-    this.lastPass = event;
   }
 }
 
-/** null = not enough evidence → do not count */
-function resolveDelta(blob: PassBlob): 1 | -1 | null {
-  const growth = blob.peakArea / Math.max(blob.firstArea, 0.0001);
-  const endGrowth = blob.lastArea / Math.max(blob.firstArea, 0.0001);
-  const visibleMs = Math.max(0, blob.lastSeenAtMs - blob.firstSeenAtMs);
-  const movedDown = blob.lastCenterY - blob.firstCenterY;
+function growthPeak(blob: PassBlob): number {
+  return blob.peakArea / Math.max(blob.firstArea, 0.0001);
+}
 
-  const lingered =
-    blob.hits >= THEY_PASSED_MIN_HITS || visibleMs >= THEY_PASSED_MIN_MS;
-  if (lingered && endGrowth <= THEY_PASSED_MAX_GROWTH && movedDown < 0.06) {
-    return -1;
+function growthEnd(blob: PassBlob): number {
+  return blob.lastArea / Math.max(blob.firstArea, 0.0001);
+}
+
+function movedDown(blob: PassBlob): number {
+  return blob.lastCenterY - blob.firstCenterY;
+}
+
+function shrinkSteps(blob: PassBlob): number {
+  let steps = 0;
+  for (let i = 1; i < blob.areas.length; i += 1) {
+    if (blob.areas[i]! < blob.areas[i - 1]! * 0.97) steps += 1;
   }
+  return steps;
+}
 
-  // We passed them: box got bigger and/or slid down the frame (closer).
-  if (growth >= WE_PASSED_MIN_GROWTH || movedDown >= WE_PASSED_MIN_DOWN) {
-    return 1;
-  }
+function isStrongWePassed(blob: PassBlob): boolean {
+  if (blob.hits < WE_MIN_HITS) return false;
+  const g = growthPeak(blob);
+  const down = movedDown(blob);
+  return g >= WE_MIN_GROWTH || (g >= 1.12 && down >= WE_MIN_DOWN);
+}
 
+function isStrongTheyPassed(blob: PassBlob): boolean {
+  const visibleMs = blob.lastSeenAtMs - blob.firstSeenAtMs;
+  if (blob.hits < THEY_MIN_HITS && visibleMs < THEY_MIN_MS) return false;
+  if (growthEnd(blob) > THEY_MAX_END_GROWTH) return false;
+  if (movedDown(blob) >= 0.06) return false; // growing closer = not them pulling away
+  if (shrinkSteps(blob) < THEY_MIN_SHRINK_STEPS) return false;
+  return true;
+}
+
+function decideOnLoss(blob: PassBlob): 1 | -1 | null {
+  if (isStrongTheyPassed(blob)) return -1;
+  if (isStrongWePassed(blob)) return 1;
   return null;
 }
