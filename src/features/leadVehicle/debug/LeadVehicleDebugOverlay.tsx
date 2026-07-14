@@ -97,9 +97,10 @@ export function LeadVehicleDebugOverlay({
             tracks {metrics.trackerCount} · drop {metrics.droppedAnalysisFrames}
           </Text>
           <Text style={line}>
-            on screen {passCounter.vehiclesOnScreen} · passed{" "}
-            {passCounter.vehiclesPassed}
-            {passCounter.lastPass ? " · +1" : ""}
+            passed {passCounter.vehiclesPassed}
+            {passCounter.lastPass
+              ? ` · last ${passCounter.lastPass.delta > 0 ? "+1" : "-1"}`
+              : ""}
           </Text>
           {lead ? (
             <>

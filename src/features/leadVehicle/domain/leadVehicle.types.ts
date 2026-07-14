@@ -301,6 +301,7 @@ export interface LeadVehicleTelemetryEvent {
         trackId: string;
         vehicleType?: SupportedVehicleType | string;
         timestampMs: number;
+        delta?: 1 | -1;
       };
     };
   modelMetadata: {

@@ -502,6 +502,7 @@ export class LeadVehiclePipeline {
           ? {
               trackId: this.lastPassSnapshot.lastPass.trackId,
               timestampMs: this.lastPassSnapshot.lastPass.timestampMs,
+              delta: this.lastPassSnapshot.lastPass.delta,
             }
           : null,
         lead: overlayLead

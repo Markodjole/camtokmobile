@@ -44,6 +44,7 @@ export class LeadVehicleTelemetryClient {
         lastPass: {
           trackId: string;
           timestampMs: number;
+          delta: 1 | -1;
         } | null;
       };
     },
@@ -75,6 +76,7 @@ export class LeadVehicleTelemetryClient {
     lastPass?: {
       trackId: string;
       timestampMs: number;
+      delta: 1 | -1;
     } | null;
     lead: {
       trackId: string;
@@ -125,6 +127,7 @@ export class LeadVehicleTelemetryClient {
           ? {
               trackId: args.lastPass.trackId,
               timestampMs: args.lastPass.timestampMs,
+              delta: args.lastPass.delta,
             }
           : undefined,
       },
@@ -158,6 +161,7 @@ export class LeadVehicleTelemetryClient {
       mapped.payload.lastPass = {
         trackId: counts.lastPass.trackId,
         timestampMs: counts.lastPass.timestampMs,
+        delta: counts.lastPass.delta,
       };
     }
   }
