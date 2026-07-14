@@ -1,139 +1,61 @@
 import { describe, expect, it } from "vitest";
 import { VehiclePassCounter } from "../domain/leadVehicle.passCounter";
-import type { TrackedVehicle } from "../domain/leadVehicle.types";
+import type { VehicleDetection } from "../domain/leadVehicle.types";
 
-function track(opts: {
-  id: string;
-  t0: number;
-  t1: number;
-  w0: number;
-  h0: number;
-  w1: number;
-  h1: number;
-}): TrackedVehicle {
+function det(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  confidence = 0.7,
+): VehicleDetection {
   return {
-    trackId: opts.id,
     vehicleType: "car",
-    classConfidence: 0.9,
-    trackingConfidence: 0.9,
-    boundingBox: {
-      x: 0.4,
-      y: 0.4,
-      width: opts.w1,
-      height: opts.h1,
-    },
-    bottomCenter: { x: 0.5, y: 0.58 },
-    firstSeenAtMs: opts.t0,
-    lastSeenAtMs: opts.t1,
-    visibleDurationMs: opts.t1 - opts.t0,
-    missedFrameCount: 0,
-    trajectory: [
-      {
-        timestampMs: opts.t0,
-        centerX: 0.5,
-        centerY: 0.5,
-        width: opts.w0,
-        height: opts.h0,
-      },
-      {
-        timestampMs: opts.t0 + 400,
-        centerX: 0.5,
-        centerY: 0.5,
-        width: (opts.w0 + opts.w1) / 2,
-        height: (opts.h0 + opts.h1) / 2,
-      },
-      {
-        timestampMs: opts.t1,
-        centerX: 0.5,
-        centerY: 0.5,
-        width: opts.w1,
-        height: opts.h1,
-      },
-    ],
+    confidence,
+    boundingBox: { x, y, width: w, height: h },
   };
 }
 
-describe("VehiclePassCounter signed score", () => {
-  it("+1 when a vehicle grows then disappears (we passed them)", () => {
+describe("VehiclePassCounter (detection-based)", () => {
+  it("counts many brief flybys as separate +1s", () => {
     const c = new VehiclePassCounter();
-    const v = track({
-      id: "vehicle_1",
-      t0: 0,
-      t1: 1200,
-      w0: 0.1,
-      h0: 0.1,
-      w1: 0.24,
-      h1: 0.24,
-    });
-    c.observe([v], [], 1200);
-    const after = c.observe([], [v], 1400);
+    let score = 0;
+    for (let i = 0; i < 12; i += 1) {
+      const x = 0.2 + (i % 5) * 0.12;
+      // Appear growing toward bottom, then gone.
+      c.observeDetections([det(x, 0.4, 0.1, 0.12)], i * 200);
+      c.observeDetections([det(x, 0.55, 0.14, 0.16)], i * 200 + 70);
+      c.observeDetections([det(x, 0.7, 0.18, 0.2)], i * 200 + 140);
+      c.observeDetections([], i * 200 + 220);
+      const snap = c.observeDetections([], i * 200 + 300);
+      score = snap.vehiclesPassed;
+    }
+    expect(score).toBeGreaterThanOrEqual(10);
+  });
+
+  it("+1 when a vehicle grows then disappears", () => {
+    const c = new VehiclePassCounter();
+    c.observeDetections([det(0.4, 0.35, 0.1, 0.1)], 0);
+    c.observeDetections([det(0.4, 0.45, 0.16, 0.16)], 80);
+    c.observeDetections([det(0.4, 0.55, 0.22, 0.22)], 160);
+    const after = c.observeDetections([], 400);
     expect(after.vehiclesPassed).toBe(1);
     expect(after.lastPass?.delta).toBe(1);
   });
 
-  it("-1 when a vehicle shrinks then disappears (they passed us)", () => {
+  it("-1 when a vehicle shrinks / pulls ahead then disappears", () => {
     const c = new VehiclePassCounter();
-    const v = track({
-      id: "vehicle_1",
-      t0: 0,
-      t1: 1200,
-      w0: 0.22,
-      h0: 0.22,
-      w1: 0.08,
-      h1: 0.08,
-    });
-    c.observe([v], [], 1200);
-    const after = c.observe([], [v], 1400);
+    c.observeDetections([det(0.4, 0.45, 0.22, 0.22)], 0);
+    c.observeDetections([det(0.4, 0.42, 0.16, 0.16)], 80);
+    c.observeDetections([det(0.4, 0.4, 0.1, 0.1)], 160);
+    const after = c.observeDetections([], 400);
     expect(after.vehiclesPassed).toBe(-1);
     expect(after.lastPass?.delta).toBe(-1);
   });
 
-  it("nets +1 and -1 across two vehicles", () => {
+  it("ignores single-frame flicker", () => {
     const c = new VehiclePassCounter();
-    const grow = track({
-      id: "a",
-      t0: 0,
-      t1: 1000,
-      w0: 0.1,
-      h0: 0.1,
-      w1: 0.2,
-      h1: 0.2,
-    });
-    const shrink = track({
-      id: "b",
-      t0: 0,
-      t1: 1000,
-      w0: 0.2,
-      h0: 0.2,
-      w1: 0.08,
-      h1: 0.08,
-    });
-    c.observe([grow, shrink], [], 1000);
-    expect(c.observe([], [grow, shrink], 1200).vehiclesPassed).toBe(0);
-  });
-
-  it("+1 after sitting still (red light) then leaving with little size change", () => {
-    const c = new VehiclePassCounter();
-    const frames: TrackedVehicle[] = [];
-    for (let t = 0; t <= 2000; t += 200) {
-      frames.push(
-        track({
-          id: "wait",
-          t0: 0,
-          t1: t,
-          w0: 0.14,
-          h0: 0.16,
-          w1: 0.14,
-          h1: 0.16,
-        }),
-      );
-    }
-    for (const f of frames) {
-      c.observe([f], [], f.lastSeenAtMs);
-    }
-    const last = frames[frames.length - 1]!;
-    const after = c.observe([], [last], 2200);
-    expect(after.vehiclesPassed).toBe(1);
-    expect(after.lastPass?.delta).toBe(1);
+    c.observeDetections([det(0.4, 0.4, 0.12, 0.12)], 0);
+    expect(c.observeDetections([], 200).vehiclesPassed).toBe(0);
   });
 });

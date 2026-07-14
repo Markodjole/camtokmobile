@@ -1,23 +1,17 @@
-import { classifyRelativeMovement } from "./leadVehicle.motion";
-import type { TrackedVehicle } from "./leadVehicle.types";
+import { boxCenter } from "./leadVehicle.geometry";
+import type {
+  NormalizedBoundingBox,
+  VehicleDetection,
+} from "./leadVehicle.types";
 
-/** Ignore sub-3-frame flicker at ~15 FPS. */
-export const PASS_MIN_VISIBLE_MS = 200;
-/** How long a nearly-static sighting counts as "red light / waiting". */
-export const STABLE_RED_LIGHT_MS = 800;
-
-export type VehiclePassMemory = {
-  trackId: string;
-  firstSeenAtMs: number;
-  lastSeenAtMs: number;
-  firstArea: number;
-  peakArea: number;
-  lastArea: number;
-  lastRelative: string;
-  /** Accumulated ms spent looking motionless relative to us (red light queues). */
-  stableMs: number;
-  lastTouchAtMs: number;
-};
+/** Need at least this many matched frames before a disappearance counts. */
+export const PASS_MIN_HITS = 2;
+/** How far (normalized) a box center can move and still be the same vehicle. */
+export const PASS_MATCH_DIST = 0.28;
+/** Finalize after this many missed frames (~2 @ 15–20 FPS). */
+export const PASS_MAX_MISSES = 2;
+/** Tiny boxes are usually noise. */
+export const PASS_MIN_AREA = 0.004;
 
 export type VehiclePassEvent = {
   trackId: string;
@@ -29,47 +23,125 @@ export type VehiclePassEvent = {
 
 export type VehiclePassCounterSnapshot = {
   vehiclesOnScreen: number;
-  /** Net score: +1 per vehicle we pass, -1 when they pass us. */
   vehiclesPassed: number;
   lastPass: VehiclePassEvent | null;
 };
 
+type PassBlob = {
+  id: string;
+  hits: number;
+  misses: number;
+  firstSeenAtMs: number;
+  lastSeenAtMs: number;
+  firstArea: number;
+  peakArea: number;
+  lastArea: number;
+  firstCenterY: number;
+  lastCenterY: number;
+  lastBox: NormalizedBoundingBox;
+};
+
+let nextPassId = 1;
+
 /**
- * Net pass counter from vision tracks (type-agnostic).
- * Bigger then gone → we passed them (+1).
- * Smaller then gone → they pulled ahead / passed us (-1).
- * Sat still with us (red light) then left frame → still counted (+1 when we clear them).
+ * Standalone pass counter from raw detections (not the sticky lead tracker).
+ * Loose center matching → each brief flyby gets its own life → +1/−1 on exit.
  */
 export class VehiclePassCounter {
-  private memory = new Map<string, VehiclePassMemory>();
+  private blobs = new Map<string, PassBlob>();
   private passed = 0;
   private lastPass: VehiclePassEvent | null = null;
-  private countedPassIds = new Set<string>();
+  private finalized = new Set<string>();
 
   reset(): void {
-    this.memory.clear();
+    this.blobs.clear();
     this.passed = 0;
     this.lastPass = null;
-    this.countedPassIds.clear();
+    this.finalized.clear();
+    nextPassId = 1;
   }
 
-  observe(
-    tracks: TrackedVehicle[],
-    removed: TrackedVehicle[],
+  /**
+   * Feed every vehicle detection this frame (car/bike/bus/… — all types).
+   */
+  observeDetections(
+    detections: VehicleDetection[],
     nowMs: number,
   ): VehiclePassCounterSnapshot {
-    for (const track of tracks) {
-      this.touch(track, nowMs);
+    const usable = detections.filter((d) => {
+      const a = d.boundingBox.width * d.boundingBox.height;
+      return a >= PASS_MIN_AREA && d.confidence >= 0.2;
+    });
+
+    const unmatchedBlobs = new Set(this.blobs.keys());
+    const usedDet = new Set<number>();
+
+    const pairs: { blobId: string; detIdx: number; dist: number }[] = [];
+    for (const [blobId, blob] of this.blobs) {
+      usable.forEach((det, detIdx) => {
+        const c = boxCenter(det.boundingBox);
+        const bc = boxCenter(blob.lastBox);
+        const dist = Math.hypot(c.x - bc.x, c.y - bc.y);
+        if (dist > PASS_MATCH_DIST) return;
+        pairs.push({ blobId, detIdx, dist });
+      });
+    }
+    pairs.sort((a, b) => a.dist - b.dist);
+
+    for (const pair of pairs) {
+      if (!unmatchedBlobs.has(pair.blobId) || usedDet.has(pair.detIdx)) continue;
+      unmatchedBlobs.delete(pair.blobId);
+      usedDet.add(pair.detIdx);
+      this.bump(this.blobs.get(pair.blobId)!, usable[pair.detIdx]!, nowMs);
     }
 
-    for (const track of removed) {
-      this.touch(track, nowMs);
-      this.finalizeLost(track.trackId, nowMs);
+    for (const blobId of unmatchedBlobs) {
+      const blob = this.blobs.get(blobId)!;
+      blob.misses += 1;
+      if (blob.misses > PASS_MAX_MISSES) {
+        this.finalize(blob, nowMs);
+        this.blobs.delete(blobId);
+      }
     }
 
-    const onScreen = tracks.filter((t) => t.missedFrameCount === 0).length;
+    usable.forEach((det, idx) => {
+      if (usedDet.has(idx)) return;
+      const box = det.boundingBox;
+      const c = boxCenter(box);
+      const area = Math.max(0.0001, box.width * box.height);
+      const id = `pass_${nextPassId++}`;
+      this.blobs.set(id, {
+        id,
+        hits: 1,
+        misses: 0,
+        firstSeenAtMs: nowMs,
+        lastSeenAtMs: nowMs,
+        firstArea: area,
+        peakArea: area,
+        lastArea: area,
+        firstCenterY: c.y,
+        lastCenterY: c.y,
+        lastBox: box,
+      });
+    });
+
     return {
-      vehiclesOnScreen: onScreen,
+      vehiclesOnScreen: [...this.blobs.values()].filter((b) => b.misses === 0)
+        .length,
+      vehiclesPassed: this.passed,
+      lastPass: this.lastPass,
+    };
+  }
+
+  /** @deprecated lead-tracker path — prefer observeDetections */
+  observe(
+    _tracks: unknown,
+    _removed: unknown,
+    nowMs: number,
+  ): VehiclePassCounterSnapshot {
+    return {
+      vehiclesOnScreen: [...this.blobs.values()].filter((b) => b.misses === 0)
+        .length,
       vehiclesPassed: this.passed,
       lastPass: this.lastPass,
     };
@@ -77,118 +149,65 @@ export class VehiclePassCounter {
 
   snapshot(): VehiclePassCounterSnapshot {
     return {
-      vehiclesOnScreen: [...this.memory.values()].length,
+      vehiclesOnScreen: [...this.blobs.values()].filter((b) => b.misses === 0)
+        .length,
       vehiclesPassed: this.passed,
       lastPass: this.lastPass,
     };
   }
 
-  private touch(track: TrackedVehicle, nowMs: number): void {
-    const area = Math.max(
-      0,
-      track.boundingBox.width * track.boundingBox.height,
-    );
-    const relative = classifyRelativeMovement(track, { nowMs });
-    const existing = this.memory.get(track.trackId);
-    if (!existing) {
-      this.memory.set(track.trackId, {
-        trackId: track.trackId,
-        firstSeenAtMs: track.firstSeenAtMs,
-        lastSeenAtMs: track.lastSeenAtMs,
-        firstArea: area || 0.0001,
-        peakArea: area,
-        lastArea: area,
-        lastRelative: relative,
-        stableMs: isStillRelative(relative) ? 0 : 0,
-        lastTouchAtMs: nowMs,
-      });
-      return;
-    }
+  private bump(blob: PassBlob, det: VehicleDetection, nowMs: number): void {
+    const box = det.boundingBox;
+    const c = boxCenter(box);
+    const area = Math.max(0.0001, box.width * box.height);
+    blob.hits += 1;
+    blob.misses = 0;
+    blob.lastSeenAtMs = nowMs;
+    blob.peakArea = Math.max(blob.peakArea, area);
+    blob.lastArea = area;
+    blob.lastCenterY = c.y;
+    blob.lastBox = box;
 
-    const dt = Math.max(0, nowMs - existing.lastTouchAtMs);
-    if (isStillRelative(relative) || isStillRelative(existing.lastRelative)) {
-      // Sitting in traffic / red light — relative box barely changes.
-      const areaDelta =
-        Math.abs(area - existing.lastArea) / Math.max(existing.lastArea, 0.0001);
-      if (areaDelta < 0.12) {
-        existing.stableMs += dt;
-      }
+    // Early pass: blew past us toward the bottom of the frame while growing.
+    if (
+      blob.hits >= PASS_MIN_HITS &&
+      c.y > 0.88 &&
+      (area > blob.firstArea * 1.15 || blob.peakArea > blob.firstArea * 1.25)
+    ) {
+      this.finalize(blob, nowMs, 1);
+      this.blobs.delete(blob.id);
     }
-
-    existing.lastSeenAtMs = Math.max(existing.lastSeenAtMs, track.lastSeenAtMs);
-    existing.peakArea = Math.max(existing.peakArea, area);
-    existing.lastArea = area;
-    existing.lastRelative = relative;
-    existing.lastTouchAtMs = nowMs;
   }
 
-  private finalizeLost(
-    trackId: string,
+  private finalize(
+    blob: PassBlob,
     nowMs: number,
-  ): VehiclePassEvent | null {
-    if (this.countedPassIds.has(trackId)) {
-      this.memory.delete(trackId);
-      return null;
-    }
-    const mem = this.memory.get(trackId);
-    this.memory.delete(trackId);
-    if (!mem) return null;
+    forcedDelta?: 1 | -1,
+  ): void {
+    if (this.finalized.has(blob.id)) return;
+    if (blob.hits < PASS_MIN_HITS) return;
+    this.finalized.add(blob.id);
 
-    const visibleMs = Math.max(0, mem.lastSeenAtMs - mem.firstSeenAtMs);
-    if (visibleMs < PASS_MIN_VISIBLE_MS) return null;
-
-    const delta = resolvePassDelta(mem);
+    const delta = forcedDelta ?? resolveDelta(blob);
     const event: VehiclePassEvent = {
-      trackId,
+      trackId: blob.id,
       timestampMs: nowMs,
       delta,
       reason: delta === 1 ? "we_passed" : "they_passed",
     };
-    this.countedPassIds.add(trackId);
     this.passed += delta;
     this.lastPass = event;
-    return event;
   }
 }
 
-function isStillRelative(rel: string): boolean {
-  return (
-    rel === "stable_ahead" ||
-    rel === "uncertain" ||
-    rel === "temporarily_occluded"
-  );
-}
+function resolveDelta(blob: PassBlob): 1 | -1 {
+  const growth = blob.lastArea / Math.max(blob.firstArea, 0.0001);
+  const movedDown = blob.lastCenterY - blob.firstCenterY;
 
-function resolvePassDelta(mem: VehiclePassMemory): 1 | -1 {
-  const rel = mem.lastRelative;
-  if (
-    rel === "approaching" ||
-    rel === "slowing_or_rider_approaching"
-  ) {
-    return 1;
-  }
-  if (rel === "moving_away") {
-    return -1;
-  }
+  // Pulling ahead / shrinking in distance → they passed us.
+  if (growth <= 0.85 && movedDown < 0.05) return -1;
 
-  const growth = mem.lastArea / Math.max(mem.firstArea, 0.0001);
-  if (growth >= 1.08 || mem.peakArea >= mem.firstArea * 1.2) {
-    return 1;
-  }
-  if (growth <= 0.92) {
-    return -1;
-  }
-
-  // Red light / stopped traffic: sat still with us, then left the frame
-  // (you rolled past the queue, or they peeled off after the light).
-  if (
-    mem.stableMs >= STABLE_RED_LIGHT_MS ||
-    rel === "stable_ahead" ||
-    isStillRelative(rel)
-  ) {
-    return 1;
-  }
-
-  if (mem.lastArea >= 0.04 || mem.peakArea >= 0.05) return 1;
-  return -1;
+  // Default: any other disappearance counts as we cleared/passed them.
+  // Fast roadside flybys barely grow; still +1 so we stop under-counting.
+  return 1;
 }

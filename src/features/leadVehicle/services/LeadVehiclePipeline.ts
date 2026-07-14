@@ -382,12 +382,16 @@ export class LeadVehiclePipeline {
     _inferenceMs: number,
   ): Promise<void> {
     this.lastDetections = detections;
-    const { tracks, removed } = this.tracker.update(detections, timestampMs);
+    const { tracks, removed: _removed } = this.tracker.update(
+      detections,
+      timestampMs,
+    );
     const mature = this.tracker.matureTracks();
 
-    this.lastPassSnapshot = this.passCounter.observe(
-      tracks,
-      removed,
+    // Pass counting uses raw detections with a dedicated loose matcher —
+    // not the sticky lead tracker (which was under-counting fast flybys).
+    this.lastPassSnapshot = this.passCounter.observeDetections(
+      detections,
       timestampMs,
     );
 
