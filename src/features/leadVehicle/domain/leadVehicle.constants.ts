@@ -10,7 +10,7 @@ export const DEFAULT_LEAD_VEHICLE_MODEL_CONFIG: LeadVehicleModelConfig = {
   modelVersion: "1.0_quant_2018_06_29",
   inputWidth: 300,
   inputHeight: 300,
-  minimumDetectionConfidence: 0.5,
+  minimumDetectionConfidence: 0.55,
   supportedClasses: [
     "car",
     "motorcycle",
