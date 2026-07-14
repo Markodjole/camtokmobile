@@ -46,7 +46,7 @@ export const LEAD_LOSS_GRACE_PERIOD_MS = 750;
 
 export const SAME_DIRECTION_THRESHOLD = 0.65;
 export const MOTION_WINDOW_MS = 1000;
-export const EVENT_HEARTBEAT_MS = 1500;
+export const EVENT_HEARTBEAT_MS = 400;
 
 export const PREDICTION_MIN_VISIBLE_MS = 1800;
 export const PREDICTION_MIN_RIDER_SPEED_MPS = 1.0;

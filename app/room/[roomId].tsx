@@ -48,7 +48,6 @@ import {
   normalizeDrivingRouteStyle,
 } from "@/lib/drivingRouteStyle";
 import {
-  LeadVehicleDebugOverlay,
   useLeadVehicleTracking,
 } from "@/features/leadVehicle";
 import { useAuth } from "@/providers/AuthProvider";
@@ -693,34 +692,16 @@ export default function RoomScreen() {
             : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, zIndex: 5 }
         }
       >
-        {isOwnLiveSession || isDriverMode ? (
+        {(isOwnLiveSession || isDriverMode) ? (
           <>
             <BroadcasterCameraPreview
               liveSessionId={effectiveSessionId}
               facing="back"
               style={{ flex: 1 }}
             />
-            <LeadVehicleDebugOverlay mode="boxes" />
           </>
         ) : null}
       </View>
-
-      {/* Readable lead-vehicle HUD (map fullscreen still shows status) */}
-      {(isOwnLiveSession || isDriverMode) ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: insets.top + (isRider ? 118 : 72),
-            height: 110,
-            zIndex: 45,
-          }}
-        >
-          <LeadVehicleDebugOverlay mode="hud" />
-        </View>
-      ) : null}
 
       {/* Top gradient scrim */}
       <View

@@ -101,6 +101,19 @@ export class LeadVehiclePipeline {
         const snap = this.getSnapshot();
         return snap.predictionReadiness;
       },
+      getOverlayDetections: () => {
+        const snap = this.getSnapshot();
+        const leadId = snap.leadVehicle?.trackId ?? null;
+        return snap.tracks
+          .filter((t) => t.missedFrameCount === 0)
+          .map((t) => ({
+            trackId: t.trackId,
+            vehicleType: t.vehicleType,
+            confidence: t.trackingConfidence,
+            isLead: leadId != null && t.trackId === leadId,
+            normalizedBoundingBox: t.boundingBox,
+          }));
+      },
     });
     this.events.subscribe((ev) => {
       void this.telemetry.publish(ev);
@@ -343,6 +356,8 @@ export class LeadVehiclePipeline {
     }
   }
 
+  private lastOverlayPushMs = 0;
+
   private async applyDetections(
     detections: VehicleDetection[],
     timestampMs: number,
@@ -448,6 +463,33 @@ export class LeadVehiclePipeline {
     }
 
     this.notify();
+
+    if (timestampMs - this.lastOverlayPushMs >= 400) {
+      this.lastOverlayPushMs = timestampMs;
+      const overlayLead = this.leadTrackId
+        ? this.tracker.getTracks().find((t) => t.trackId === this.leadTrackId)
+        : null;
+      void this.telemetry.publishOverlayFrame({
+        rideId: this.opts.rideId,
+        sessionId: this.opts.sessionId,
+        timestampMs,
+        lead: overlayLead
+          ? (() => {
+              const snap = this.toSnapshot(overlayLead, timestampMs);
+              return {
+                trackId: snap.trackId,
+                vehicleType: snap.vehicleType,
+                confidence: snap.confidence,
+                sameDirectionConfidence: snap.sameDirectionConfidence,
+                relativeState: snap.relativeState,
+                visibleDurationMs: snap.visibleDurationMs,
+                lateralPosition: snap.lateralPosition,
+                boundingBox: snap.boundingBox,
+              };
+            })()
+          : null,
+      });
+    }
   }
 
   private toSnapshot(

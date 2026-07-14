@@ -285,6 +285,14 @@ export interface LeadVehicleTelemetryEvent {
     predictionConfidence?: number;
     predictionReasons?: string[];
     predictionBlockers?: string[];
+    /** All visible vehicle boxes for viewer overlay (lead + others). */
+    detections?: Array<{
+      trackId?: string;
+      vehicleType?: SupportedVehicleType;
+      confidence?: number;
+      isLead?: boolean;
+      normalizedBoundingBox: NormalizedBoundingBox;
+    }>;
   };
   modelMetadata: {
     modelName: string;

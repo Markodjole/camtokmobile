@@ -25,10 +25,8 @@ export function leadVehicleTrackingEnabled(): boolean {
 }
 
 export function leadVehicleDebugOverlayEnabled(): boolean {
-  if (flag("EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY")) return true;
-  const raw = process.env.EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY;
-  if (raw === "0" || raw === "false") return false;
-  return typeof __DEV__ !== "undefined" && __DEV__;
+  // Rider never sees boxes/HUD unless explicitly forced for engineering debug.
+  return flag("EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY");
 }
 
 export function leadVehicleRemoteInferenceEnabled(): boolean {

@@ -2,8 +2,18 @@ import type {
   InferenceMode,
   LeadVehicleEvent,
   LeadVehicleTelemetryEvent,
+  NormalizedBoundingBox,
+  SupportedVehicleType,
 } from "../domain/leadVehicle.types";
 import { DEFAULT_LEAD_VEHICLE_MODEL_CONFIG } from "../domain/leadVehicle.constants";
+
+export type LeadVehicleOverlayDetection = {
+  trackId?: string;
+  vehicleType?: SupportedVehicleType;
+  confidence?: number;
+  isLead?: boolean;
+  normalizedBoundingBox: NormalizedBoundingBox;
+};
 
 /**
  * Posts lead-vehicle telemetry onto the existing REST session channel.
@@ -25,6 +35,7 @@ export class LeadVehicleTelemetryClient {
         reasons: string[];
         blockers: string[];
       } | null;
+      getOverlayDetections?: () => LeadVehicleOverlayDetection[];
     },
   ) {}
 
@@ -40,6 +51,65 @@ export class LeadVehicleTelemetryClient {
       inferenceMode: this.inferenceMode(),
     });
     if (!mapped) return;
+    await this.send(mapped);
+  }
+
+  /** Viewer overlay frame — works even with no locked lead. */
+  async publishOverlayFrame(args: {
+    rideId: string;
+    sessionId: string;
+    timestampMs: number;
+    lead: {
+      trackId: string;
+      vehicleType: SupportedVehicleType;
+      confidence: number;
+      sameDirectionConfidence: number;
+      relativeState: string;
+      visibleDurationMs: number;
+      lateralPosition: "left" | "center" | "right";
+      boundingBox: NormalizedBoundingBox;
+    } | null;
+  }): Promise<void> {
+    if (!this.opts.enabled) return;
+    const detections = this.opts.getOverlayDetections?.() ?? [];
+    if (!args.lead && detections.length === 0) {
+      // Still clear remote overlay if we previously had detections.
+      if (!this.hadDetections) return;
+      this.hadDetections = false;
+    } else {
+      this.hadDetections = detections.length > 0 || !!args.lead;
+    }
+
+    const mapped: LeadVehicleTelemetryEvent = {
+      eventType: args.lead ? "lead_vehicle_updated" : "lead_vehicle_updated",
+      rideId: args.rideId,
+      riderId: this.opts.riderId,
+      sessionId: args.sessionId,
+      timestampMs: args.timestampMs,
+      payload: {
+        ...(args.lead
+          ? {
+              trackId: args.lead.trackId,
+              vehicleType: args.lead.vehicleType,
+              confidence: args.lead.confidence,
+              sameDirectionConfidence: args.lead.sameDirectionConfidence,
+              relativeState: args.lead.relativeState as LeadVehicleTelemetryEvent["payload"]["relativeState"],
+              visibleDurationMs: args.lead.visibleDurationMs,
+              lateralPosition: args.lead.lateralPosition,
+              normalizedBoundingBox: args.lead.boundingBox,
+            }
+          : {}),
+        detections,
+      },
+      modelMetadata: {
+        modelName:
+          this.opts.modelName ?? DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.modelName,
+        modelVersion:
+          this.opts.modelVersion ??
+          DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.modelVersion,
+        inferenceMode: this.inferenceMode(),
+      },
+    };
     const readiness = this.opts.getPredictionReadiness?.() ?? null;
     if (readiness) {
       mapped.payload.predictionReady = readiness.ready;
@@ -47,10 +117,31 @@ export class LeadVehicleTelemetryClient {
       mapped.payload.predictionReasons = readiness.reasons;
       mapped.payload.predictionBlockers = readiness.blockers;
     }
+    await this.send(mapped);
+  }
+
+  private hadDetections = false;
+
+  private async send(mapped: LeadVehicleTelemetryEvent): Promise<void> {
+    const readiness = this.opts.getPredictionReadiness?.() ?? null;
+    if (readiness && mapped.payload.predictionReady == null) {
+      mapped.payload.predictionReady = readiness.ready;
+      mapped.payload.predictionConfidence = readiness.confidence;
+      mapped.payload.predictionReasons = readiness.reasons;
+      mapped.payload.predictionBlockers = readiness.blockers;
+    }
+    if (this.opts.includeBoundingBoxes) {
+      const dets = this.opts.getOverlayDetections?.() ?? [];
+      if (dets.length > 0) {
+        mapped.payload.detections = dets;
+      } else if (mapped.eventType === "lead_vehicle_lost") {
+        mapped.payload.detections = [];
+      }
+    }
     try {
       const { apiFetch } = await import("@/lib/api");
       await apiFetch(
-        `/api/live/sessions/${event.sessionId}/lead-vehicle-events`,
+        `/api/live/sessions/${mapped.sessionId}/lead-vehicle-events`,
         {
           method: "POST",
           body: mapped as unknown as Record<string, unknown>,
@@ -120,6 +211,9 @@ function mapEvent(
           sameDirectionConfidence: event.vehicle.sameDirectionConfidence,
           visibleDurationMs: event.vehicle.visibleDurationMs,
           lateralPosition: event.vehicle.lateralPosition,
+          normalizedBoundingBox: opts.includeBoundingBoxes
+            ? event.vehicle.boundingBox
+            : undefined,
         },
         modelMetadata: meta,
       };
@@ -147,6 +241,7 @@ function mapEvent(
           trackId: event.trackId,
           vehicleType: event.lastKnownVehicleType,
           visibleDurationMs: event.trackedDurationMs,
+          detections: [],
         },
         modelMetadata: meta,
       };
