@@ -14,6 +14,13 @@ export const PASS_MAX_MISSES = 1;
 export const PASS_MIN_AREA = 0.0035;
 /** Single-frame flybys need at least this size to count (reduces noise). */
 export const PASS_SINGLE_HIT_MIN_AREA = 0.008;
+/**
+ * Motorcycle POV: cars we overtake flash by quickly.
+ * Cars that overtake us stay longer and usually shrink into the distance.
+ */
+export const THEY_PASSED_MIN_HITS = 4;
+export const THEY_PASSED_MIN_MS = 350;
+export const THEY_PASSED_MAX_GROWTH = 0.85;
 
 export type VehiclePassEvent = {
   trackId: string;
@@ -46,8 +53,9 @@ type PassBlob = {
 let nextPassId = 1;
 
 /**
- * Standalone pass counter from raw detections (not the sticky lead tracker).
- * Loose center matching → each brief flyby gets its own life → +1/−1 on exit.
+ * Motorcycle POV pass counter from raw detections.
+ * Brief roadside flash → +1 (we passed them).
+ * Longer linger + shrink ahead → -1 (they passed us).
  */
 export class VehiclePassCounter {
   private blobs = new Map<string, PassBlob>();
@@ -207,12 +215,18 @@ export class VehiclePassCounter {
 
 function resolveDelta(blob: PassBlob): 1 | -1 {
   const growth = blob.lastArea / Math.max(blob.firstArea, 0.0001);
+  const visibleMs = Math.max(0, blob.lastSeenAtMs - blob.firstSeenAtMs);
   const movedDown = blob.lastCenterY - blob.firstCenterY;
 
-  // Pulling ahead / shrinking in distance → they passed us.
-  if (growth <= 0.85 && movedDown < 0.05) return -1;
+  // They pass us: linger longer (both moving, they pull ahead) and shrink
+  // into the distance — not a split-second roadside cut.
+  const lingered =
+    blob.hits >= THEY_PASSED_MIN_HITS || visibleMs >= THEY_PASSED_MIN_MS;
+  const shrinkingAway =
+    growth <= THEY_PASSED_MAX_GROWTH && movedDown < 0.08;
 
-  // Default: any other disappearance counts as we cleared/passed them.
-  // Fast roadside flybys barely grow; still +1 so we stop under-counting.
+  if (lingered && shrinkingAway) return -1;
+
+  // Default / short sighting: motorcycle cut past them → +1.
   return 1;
 }

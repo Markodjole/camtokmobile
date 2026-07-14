@@ -43,14 +43,24 @@ describe("VehiclePassCounter (detection-based)", () => {
     expect(after.lastPass?.delta).toBe(1);
   });
 
-  it("-1 when a vehicle shrinks / pulls ahead then disappears", () => {
+  it("-1 when a vehicle lingers then shrinks (they passed us)", () => {
     const c = new VehiclePassCounter();
-    c.observeDetections([det(0.4, 0.45, 0.22, 0.22)], 0);
-    c.observeDetections([det(0.4, 0.42, 0.16, 0.16)], 80);
-    c.observeDetections([det(0.4, 0.4, 0.1, 0.1)], 160);
-    const after = c.observeDetections([], 400);
+    c.observeDetections([det(0.4, 0.5, 0.22, 0.22)], 0);
+    c.observeDetections([det(0.4, 0.48, 0.18, 0.18)], 100);
+    c.observeDetections([det(0.4, 0.45, 0.14, 0.14)], 200);
+    c.observeDetections([det(0.4, 0.42, 0.1, 0.1)], 350);
+    c.observeDetections([det(0.4, 0.4, 0.08, 0.08)], 500);
+    const after = c.observeDetections([], 580);
     expect(after.vehiclesPassed).toBe(-1);
     expect(after.lastPass?.delta).toBe(-1);
+  });
+
+  it("brief shrink flash is still +1 (motorcycle cut past)", () => {
+    const c = new VehiclePassCounter();
+    c.observeDetections([det(0.4, 0.45, 0.22, 0.22)], 0);
+    c.observeDetections([det(0.4, 0.42, 0.16, 0.16)], 70);
+    const after = c.observeDetections([], 150);
+    expect(after.vehiclesPassed).toBe(1);
   });
 
   it("counts a single-frame sizable flyby as +1", () => {
