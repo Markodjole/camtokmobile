@@ -8,12 +8,17 @@
  * Extra args: npm run start:tunnel -- --clear
  */
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = process.env.EXPO_METRO_PORT || "8081";
-const NGROK_BIN = process.env.NGROK_BIN || "ngrok";
+const NGROK_BIN =
+  process.env.NGROK_BIN ||
+  (process.platform === "darwin" && existsSync("/opt/homebrew/bin/ngrok")
+    ? "/opt/homebrew/bin/ngrok"
+    : "ngrok");
 
 function defaultNgrokConfigPath() {
   if (process.env.NGROK_CONFIG) return process.env.NGROK_CONFIG;
@@ -81,14 +86,17 @@ if (publicUrl) {
   console.log(`Reusing existing ngrok tunnel: ${publicUrl}`);
 } else {
   ownsNgrok = true;
+  if (!existsSync(configPath)) {
+    console.error(
+      `ngrok config not found at ${configPath}. Run: ngrok config add-authtoken <token>`,
+    );
+    process.exit(1);
+  }
+  // Pass --config and path as separate argv entries so paths with spaces
+  // (macOS "Application Support") are not truncated.
   ngrok = spawn(
     NGROK_BIN,
-    [
-      "http",
-      `--config=${configPath}`,
-      "--host-header=rewrite",
-      String(PORT),
-    ],
+    ["http", "--config", configPath, "--host-header=rewrite", String(PORT)],
     { stdio: ["ignore", "inherit", "inherit"] },
   );
 
