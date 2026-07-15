@@ -115,6 +115,7 @@ export default function RoomScreen() {
     sessionId: effectiveSessionId ?? undefined,
     riderId: user?.id,
     market: countRoundMarket,
+    preview: true,
   });
 
   useLeadVehicleTracking({

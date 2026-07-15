@@ -67,6 +67,9 @@ export class VehicleCountRoundPipeline {
   private listeners = new Set<() => void>();
   private engineStarted = false;
   private counting = false;
+  /** When true, detection + boxes run continuously (no counting) so the rider
+   *  can see that vehicles are being recognized even outside a count window. */
+  private preview = false;
   private busy = false;
   private dropped = 0;
   private inferenceDurations: number[] = [];
@@ -115,6 +118,26 @@ export class VehicleCountRoundPipeline {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Live detection preview: keeps native inference + overlay boxes running even
+   * when no count round is active, so the rider can confirm vehicles are seen.
+   * Counting still only happens inside an active round.
+   */
+  async setPreviewEnabled(on: boolean): Promise<void> {
+    if (this.preview === on) return;
+    this.preview = on;
+    if (on && !this.engineStarted) {
+      await this.ensureEngine();
+    }
+    await this.syncNative();
+    if (on && this.opts.inferenceMode === "mock") {
+      this.startMockPump();
+    } else if (!on && !this.counting) {
+      this.stopMockPump();
+    }
+    this.notify();
+  }
+
   async setRoundPhase(roundId: string | null, counting: boolean): Promise<void> {
     if (counting && roundId) {
       if (!this.engineStarted) {
@@ -128,7 +151,7 @@ export class VehicleCountRoundPipeline {
       }
       this.roundCounter.beginRound(roundId);
       this.counting = true;
-      await this.setNativeEnabled(true);
+      await this.syncNative();
       if (this.opts.inferenceMode === "mock") {
         this.startMockPump();
       }
@@ -138,8 +161,11 @@ export class VehicleCountRoundPipeline {
       const finalRound = this.lastRound;
       this.counting = false;
       this.roundCounter.endRound();
-      await this.setNativeEnabled(false);
-      this.stopMockPump();
+      this.stopOverlayPump();
+      await this.syncNative();
+      if (!this.preview) {
+        this.stopMockPump();
+      }
       if (this.engine instanceof HybridVehicleInferenceEngine) {
         this.engine.setRoundId(null);
       }
@@ -192,6 +218,7 @@ export class VehicleCountRoundPipeline {
 
   async stop(): Promise<void> {
     this.counting = false;
+    this.preview = false;
     this.stopMockPump();
     this.stopOverlayPump();
     await this.setNativeEnabled(false);
@@ -221,11 +248,25 @@ export class VehicleCountRoundPipeline {
     timestampMs: number,
     serverRoundCount?: number,
   ): Promise<void> {
-    if (!this.counting) return;
+    if (!this.counting && !this.preview) return;
     const vehicles = filterVehicleDetections(
       normalizeVehicleDetections(detections),
     );
     this.lastDetections = vehicles;
+
+    if (!this.counting) {
+      // Preview: no counting, but stream detections to the viewer overlay so it
+      // can draw a box around every vehicle currently in view.
+      this.lastRound = { ...this.lastRound, vehiclesOnScreen: vehicles.length };
+      this.notify();
+      const nowWall = Date.now();
+      if (nowWall - this.lastOverlayMs >= EVENT_HEARTBEAT_MS) {
+        this.lastOverlayMs = nowWall;
+        void this.pushOverlayFrame(timestampMs);
+      }
+      return;
+    }
+
     this.lastRound = this.roundCounter.observeDetections(vehicles, timestampMs);
     if (typeof serverRoundCount === "number") {
       this.lastServerRoundCount = serverRoundCount;
@@ -270,6 +311,16 @@ export class VehicleCountRoundPipeline {
     });
   }
 
+  /** Viewer overlay frame outside count rounds — boxes only, no counting. */
+  private async pushOverlayFrame(timestampMs: number): Promise<void> {
+    await this.telemetry.publishOverlayFrame({
+      rideId: this.opts.rideId,
+      sessionId: this.opts.sessionId,
+      timestampMs,
+      lead: null,
+    });
+  }
+
   private buildOverlayDetections(): LeadVehicleOverlayDetection[] {
     return this.lastDetections.map((d, i) => ({
       trackId: `round_${i}`,
@@ -284,7 +335,7 @@ export class VehicleCountRoundPipeline {
     this.stopMockPump();
     const interval = Math.max(50, Math.round(1000 / this.inferenceFps));
     this.timer = setInterval(() => {
-      if (!this.counting) return;
+      if (!this.counting && !this.preview) return;
       this.frameId += 1;
       void this.runMockFrame({
         frameId: this.frameId,
@@ -333,6 +384,11 @@ export class VehicleCountRoundPipeline {
       clearInterval(this.overlayTimer);
       this.overlayTimer = null;
     }
+  }
+
+  /** Native detection stays on while counting OR previewing. */
+  private async syncNative(): Promise<void> {
+    await this.setNativeEnabled(this.counting || this.preview);
   }
 
   private async setNativeEnabled(enabled: boolean): Promise<void> {

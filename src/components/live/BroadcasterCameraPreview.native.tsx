@@ -45,6 +45,8 @@ type Props = {
   facing?: "front" | "back";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   style?: any;
+  /** Rendered inside the video frame (aligned with the stream) — e.g. detection boxes. */
+  overlay?: React.ReactNode;
 };
 
 /**
@@ -55,7 +57,7 @@ type Props = {
  * - Expo Go fallback: expo-camera for local preview only (video is not
  *   streamed to viewers, but broadcaster can still go live with GPS/heartbeat).
  */
-export function BroadcasterCameraPreview({ liveSessionId, facing = "back", style }: Props) {
+export function BroadcasterCameraPreview({ liveSessionId, facing = "back", style, overlay }: Props) {
   // ── WebRTC path (dev client) ───────────────────────────────────────────
   if (rtc) {
     return (
@@ -64,6 +66,7 @@ export function BroadcasterCameraPreview({ liveSessionId, facing = "back", style
         liveSessionId={liveSessionId}
         facing={facing}
         style={style}
+        overlay={overlay}
       />
     );
   }
@@ -81,6 +84,7 @@ function WebRtcPreview({
   liveSessionId,
   facing,
   style,
+  overlay,
 }: Props & { rtc: WebRtcRuntime }) {
   const setSession = useLiveBroadcastStore((s) => s.setSession);
   const setLocalStream = useLiveBroadcastStore((s) => s.setLocalStream);
@@ -246,6 +250,14 @@ function WebRtcPreview({
             mirror={facing === "front"}
             zOrder={0}
           />
+          {overlay ? (
+            <View
+              pointerEvents="none"
+              style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
+            >
+              {overlay}
+            </View>
+          ) : null}
         </SquareTopVideoFrame>
       ) : (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>

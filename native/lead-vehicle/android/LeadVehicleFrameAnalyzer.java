@@ -47,9 +47,6 @@ public final class LeadVehicleFrameAnalyzer {
     private static final float NMS_IOU = 0.45f;
     /** ~25 FPS — vehicle filter drops junk before overlay/counting. */
     private static final long MIN_INTERVAL_MS = 40L;
-    /** Road band in display space — skip sky (top) and curb (bottom). */
-    private static final float ROAD_BAND_TOP = 0.10f;
-    private static final float ROAD_BAND_BOTTOM = 0.92f;
     /** JPEG samples for server refine (~2.5 FPS). */
     private static final long JPEG_SAMPLE_INTERVAL_MS = 400L;
     private static final int JPEG_QUALITY = 65;
@@ -127,8 +124,8 @@ public final class LeadVehicleFrameAnalyzer {
     }
 
     /**
-     * Schedule analysis of the full camera frame (road band extracted inside).
-     * Must not block the WebRTC capture path.
+     * Schedule analysis of the streamed (top-cropped) frame. Detections align
+     * 1:1 with the previewed/streamed video. Must not block the capture path.
      */
     public void maybeAnalyze(VideoFrame frame) {
         if (!enabled || !available || objectDetector == null) {
@@ -157,8 +154,6 @@ public final class LeadVehicleFrameAnalyzer {
         lastInferAtMs = now;
 
         VideoFrame.Buffer buffer = frame.getBuffer();
-        final int fullWidth = buffer.getWidth();
-        final int fullHeight = buffer.getHeight();
         final int rotation = frame.getRotation();
         final long timestampMs = frame.getTimestampNs() / 1_000_000L;
         final boolean includeJpeg = now - lastJpegAtMs >= JPEG_SAMPLE_INTERVAL_MS;
@@ -166,25 +161,17 @@ public final class LeadVehicleFrameAnalyzer {
             lastJpegAtMs = now;
         }
 
-        RoadBandRect band = roadBandRect(fullWidth, fullHeight, rotation);
-        VideoFrame.Buffer roadBuffer =
-                buffer.cropAndScale(
-                        band.offsetX,
-                        band.offsetY,
-                        band.cropWidth,
-                        band.cropHeight,
-                        band.cropWidth,
-                        band.cropHeight);
+        // Analyze exactly the frame that is streamed/previewed (top-cropped by
+        // TopCropVideoFrameProcessor) so detections align 1:1 with what the rider
+        // and viewers see, and counts reflect vehicles actually in the stream.
         VideoFrame.I420Buffer i420;
         try {
-            i420 = roadBuffer.toI420();
+            i420 = buffer.toI420();
         } catch (Exception e) {
-            roadBuffer.release();
             busy.set(false);
             busySinceMs = 0;
             return;
         }
-        roadBuffer.release();
         if (i420 == null) {
             busy.set(false);
             busySinceMs = 0;
@@ -217,46 +204,6 @@ public final class LeadVehicleFrameAnalyzer {
             busy.set(false);
             busySinceMs = 0;
         }
-    }
-
-    private static final class RoadBandRect {
-        int offsetX;
-        int offsetY;
-        int cropWidth;
-        int cropHeight;
-    }
-
-    /** Display-oriented road band — where traffic actually appears on a bike cam. */
-    private static RoadBandRect roadBandRect(int width, int height, int rotation) {
-        RoadBandRect r = new RoadBandRect();
-        int bandStart;
-        int bandKeep;
-        if (rotation == 90 || rotation == 270) {
-            bandStart = Math.max(0, Math.round(width * ROAD_BAND_TOP));
-            bandKeep =
-                    Math.max(
-                            1,
-                            Math.round(width * (ROAD_BAND_BOTTOM - ROAD_BAND_TOP)));
-            r.cropHeight = height;
-            if (rotation == 90) {
-                r.offsetX = bandStart;
-            } else {
-                r.offsetX = Math.max(0, width - bandStart - bandKeep);
-            }
-            r.offsetY = 0;
-            r.cropWidth = Math.min(bandKeep, width - r.offsetX);
-        } else {
-            bandStart = Math.max(0, Math.round(height * ROAD_BAND_TOP));
-            bandKeep =
-                    Math.max(
-                            1,
-                            Math.round(height * (ROAD_BAND_BOTTOM - ROAD_BAND_TOP)));
-            r.offsetX = 0;
-            r.offsetY = bandStart;
-            r.cropWidth = width;
-            r.cropHeight = Math.min(bandKeep, height - bandStart);
-        }
-        return r;
     }
 
     private void runInference(

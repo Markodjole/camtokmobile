@@ -26,6 +26,8 @@ export type UseVehicleCountRoundOptions = {
   sessionId?: string;
   inferenceMode?: InferenceMode;
   market: UseVehicleCountRoundMarket | null;
+  /** Keep detection + overlay boxes running outside count windows (default true). */
+  preview?: boolean;
 };
 
 export function useVehicleCountRound(options: UseVehicleCountRoundOptions) {
@@ -72,6 +74,9 @@ export function useVehicleCountRound(options: UseVehicleCountRoundOptions) {
       setSnapshot(pipeline.getSnapshot());
       setError(pipeline.getSnapshot().error);
     });
+    if (options.preview !== false) {
+      void pipeline.setPreviewEnabled(true);
+    }
 
     return () => {
       void pipeline.stop();
@@ -83,6 +88,7 @@ export function useVehicleCountRound(options: UseVehicleCountRoundOptions) {
     options.rideId,
     options.riderId,
     options.inferenceMode,
+    options.preview,
     stop,
   ]);
 

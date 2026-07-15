@@ -15,6 +15,8 @@ type Props = {
   facing?: "front" | "back";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   style?: any;
+  /** Rendered inside the video frame (aligned with the stream). */
+  overlay?: React.ReactNode;
 };
 
 /**
@@ -26,6 +28,7 @@ export function BroadcasterCameraPreview({
   liveSessionId,
   facing = "front",
   style,
+  overlay,
 }: Props) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const cropCleanup = useRef<(() => void) | null>(null);
@@ -153,6 +156,14 @@ export function BroadcasterCameraPreview({
             transform: facing === "front" ? "scaleX(-1)" : undefined,
           },
         })}
+        {overlay ? (
+          <View
+            pointerEvents="none"
+            style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
+          >
+            {overlay}
+          </View>
+        ) : null}
       </SquareTopVideoFrame>
       {error ? (
         <View
