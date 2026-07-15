@@ -42,13 +42,13 @@ describe("leadVehicle.vehicleFilter", () => {
   });
 
   it("rejects low-confidence vehicles", () => {
-    const weak = det(0.4, 0.4, 0.2, 0.15, { confidence: 0.42 });
+    const weak = det(0.4, 0.4, 0.2, 0.15, { confidence: 0.3 });
     expect(vehicleRejectReason(weak)).toBe("low_confidence");
   });
 
-  it("rejects small upright pot-like false positives", () => {
-    const pot = det(0.45, 0.62, 0.08, 0.1, { confidence: 0.58 });
-    expect(vehicleRejectReason(pot)).toBe("low_confidence");
+  it("rejects tall thin post-like false positives low in frame", () => {
+    const post = det(0.45, 0.72, 0.04, 0.13, { confidence: 0.45 });
+    expect(vehicleRejectReason(post)).toBe("low_confidence");
   });
 
   it("keeps vehicles at moderate confidence", () => {

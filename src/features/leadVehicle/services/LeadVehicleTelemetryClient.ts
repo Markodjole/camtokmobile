@@ -13,6 +13,8 @@ export type LeadVehicleOverlayDetection = {
   vehicleType?: SupportedVehicleType;
   confidence?: number;
   isLead?: boolean;
+  /** Lead-follow status for the viewer label (approaching/holding/…). */
+  status?: string;
   normalizedBoundingBox: NormalizedBoundingBox;
 };
 

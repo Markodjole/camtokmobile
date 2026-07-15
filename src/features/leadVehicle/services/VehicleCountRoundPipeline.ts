@@ -5,6 +5,7 @@ import {
 } from "../domain/leadVehicle.constants";
 import { filterVehicleDetections } from "../domain/leadVehicle.vehicleFilter";
 import { normalizeVehicleDetections } from "../domain/leadVehicle.normalize";
+import { LeadVehicleFollower } from "../domain/leadVehicle.follower";
 import {
   VehicleCountRoundCounter,
   type VehicleCountRoundSnapshot,
@@ -89,6 +90,9 @@ export class VehicleCountRoundPipeline {
   private lastServerRoundCount: number | null = null;
   private lastServerRoundCountAtMs = 0;
   private activeRoundId: string | null = null;
+  /** Preview mode: follow a single lead vehicle instead of boxing all. */
+  private leadFollower = new LeadVehicleFollower();
+  private previewLead: LeadVehicleOverlayDetection | null = null;
 
   constructor(opts: VehicleCountRoundPipelineOptions) {
     this.opts = opts;
@@ -255,9 +259,24 @@ export class VehicleCountRoundPipeline {
     this.lastDetections = vehicles;
 
     if (!this.counting) {
-      // Preview: no counting, but stream detections to the viewer overlay so it
-      // can draw a box around every vehicle currently in view.
-      this.lastRound = { ...this.lastRound, vehiclesOnScreen: vehicles.length };
+      // Preview: follow a single lead vehicle (the one ahead we're tracking)
+      // and stream just that box + status to the viewer. Far more reliable and
+      // cheap than boxing/counting every vehicle.
+      const lead = this.leadFollower.observe(vehicles, timestampMs);
+      this.previewLead = lead
+        ? {
+            trackId: lead.trackId,
+            vehicleType: "vehicle",
+            confidence: 1,
+            isLead: true,
+            status: lead.status,
+            normalizedBoundingBox: lead.boundingBox,
+          }
+        : null;
+      this.lastRound = {
+        ...this.lastRound,
+        vehiclesOnScreen: lead ? 1 : 0,
+      };
       this.notify();
       const nowWall = Date.now();
       if (nowWall - this.lastOverlayMs >= EVENT_HEARTBEAT_MS) {
@@ -322,6 +341,10 @@ export class VehicleCountRoundPipeline {
   }
 
   private buildOverlayDetections(): LeadVehicleOverlayDetection[] {
+    // Preview follows a single lead vehicle; send only that box + status.
+    if (this.preview && !this.counting) {
+      return this.previewLead ? [this.previewLead] : [];
+    }
     return this.lastDetections.map((d, i) => ({
       trackId: `round_${i}`,
       vehicleType: d.vehicleType,

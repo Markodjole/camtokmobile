@@ -18,8 +18,12 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
         if (buffer.getWidth() <= 0 || buffer.getHeight() <= 0) {
             return frame;
         }
-        // Detect on the full streamed frame; pass the frame through unchanged.
+        // Detect on the full streamed frame; pass it through unchanged. We must
+        // return a frame that owns its own buffer reference — returning the input
+        // frame directly double-frees its buffer (refcount < 1 crash), so retain
+        // the buffer and wrap it in a new VideoFrame the pipeline can release.
         LeadVehicleFrameAnalyzer.getInstance().maybeAnalyze(frame);
-        return frame;
+        buffer.retain();
+        return new VideoFrame(buffer, frame.getRotation(), frame.getTimestampNs());
     }
 }

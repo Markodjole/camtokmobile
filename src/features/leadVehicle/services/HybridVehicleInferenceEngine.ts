@@ -110,7 +110,7 @@ export class HybridVehicleInferenceEngine implements VehicleInferenceEngine {
   }
 
   /**
-   * The JPEG sent to the server is the native 320×320 letterboxed model input
+   * The JPEG sent to the server is the native 448×448 letterboxed model input
    * (aspect-preserved with gray padding). Server boxes come back normalized to
    * that padded image, so map them back into 0-1 frame space to align with the
    * on-device boxes and the viewer's full-frame video.
@@ -121,7 +121,7 @@ export class HybridVehicleInferenceEngine implements VehicleInferenceEngine {
     const w = this.lastFrameMeta.width;
     const h = this.lastFrameMeta.height;
     if (!w || !h) return dets;
-    const INPUT = 320;
+    const INPUT = 448;
     const scale = Math.min(INPUT / w, INPUT / h);
     const scaledW = w * scale;
     const scaledH = h * scale;

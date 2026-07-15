@@ -4,22 +4,24 @@ import type {
   VehicleDetection,
 } from "./leadVehicle.types";
 
-/** Per-detection minimum score after native inference. */
-export const VEHICLE_MIN_CONFIDENCE = 0.46;
+/** Per-detection minimum score after native inference. Kept low so the viewer
+ *  overlay favors recall (show every vehicle, even a quick glance). */
+export const VEHICLE_MIN_CONFIDENCE = 0.4;
 
-/** Reject tiny far noise and full-frame road blobs. */
-export const VEHICLE_MIN_AREA = 0.008;
-export const VEHICLE_MAX_AREA = 0.42;
+/** Reject full-frame road blobs, but keep tiny far vehicles (min-area was
+ *  silently dropping every distant car/bike on the full frame). */
+export const VEHICLE_MIN_AREA = 0.0005;
+export const VEHICLE_MAX_AREA = 0.75;
 
 /** Width/height — vehicles are not road strips or curb lines. */
-export const VEHICLE_MIN_ASPECT = 0.32;
-export const VEHICLE_MAX_ASPECT = 2.75;
+export const VEHICLE_MIN_ASPECT = 0.25;
+export const VEHICLE_MAX_ASPECT = 3.5;
 
 /** Road/curb false positives often span most of the frame width. */
-export const VEHICLE_MAX_WIDTH = 0.68;
+export const VEHICLE_MAX_WIDTH = 0.9;
 
-/** Bottom edge of crop — curbs and road texture sit here. */
-export const VEHICLE_MAX_BOTTOM_Y = 0.9;
+/** Bottom edge of frame — curbs and road texture sit here. */
+export const VEHICLE_MAX_BOTTOM_Y = 0.98;
 
 export type VehicleRejectReason =
   | "not_vehicle_class"
@@ -72,18 +74,18 @@ export function vehicleRejectReason(
   if (bottom.y > VEHICLE_MAX_BOTTOM_Y) return "bottom_texture";
 
   const center = boxCenter(box);
-  // Large low-confidence blobs (pots, barriers mislabeled as vehicle).
-  if (area > 0.12 && d.confidence < 0.58) {
+  // Very large low-confidence blobs (barriers/road mislabeled as vehicle).
+  if (area > 0.5 && d.confidence < 0.5) {
     return "low_confidence";
   }
 
-  // Pots / posts / people: small upright blobs (taller than wide) with modest
-  // scores in the lower frame — real vehicles are wider than tall up close.
+  // Posts / people: very tall thin blobs (much taller than wide) with weak
+  // scores in the lower frame. Kept narrow so motorcycles/bikes still pass.
   if (
-    area < 0.045 &&
-    aspect < 0.85 &&
-    d.confidence < 0.6 &&
-    center.y > 0.55
+    area < 0.03 &&
+    aspect < 0.55 &&
+    d.confidence < 0.5 &&
+    center.y > 0.6
   ) {
     return "low_confidence";
   }

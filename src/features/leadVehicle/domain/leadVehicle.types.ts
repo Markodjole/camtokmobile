@@ -293,6 +293,7 @@ export interface LeadVehicleTelemetryEvent {
         vehicleType?: SupportedVehicleType;
         confidence?: number;
         isLead?: boolean;
+        status?: string;
         normalizedBoundingBox: NormalizedBoundingBox;
       }>;
       /** Vehicles currently visible on screen (ahead of rider). */

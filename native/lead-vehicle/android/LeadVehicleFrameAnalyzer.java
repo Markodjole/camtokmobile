@@ -32,21 +32,25 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * MediaPipe EfficientDet-Lite2 int8 (320×320) on WebRTC frames via TFLite Task Vision.
- * All COCO vehicle classes collapse to a single "vehicle" label for downstream logic.
- * Runs off the capture thread; newest-frame-wins when busy.
+ * EfficientDet-Lite2 (448×448) on WebRTC frames via TFLite Task Vision, run as a
+ * 2×2 tiled sweep + one full-frame pass so small/distant vehicles are detected.
+ * All COCO vehicle classes collapse to a single "vehicle" label for downstream
+ * logic. Runs off the capture thread; newest-frame-wins when busy.
  */
 public final class LeadVehicleFrameAnalyzer {
     private static final String TAG = "LeadVehicleDetect";
     private static final String MODEL_ASSET = "models/efficientdet_lite2.tflite";
-    private static final int INPUT_SIZE = 320;
-    private static final int MAX_RESULTS = 25;
+    /** EfficientDet-Lite2 native input is 448 — feeding 320 wasted resolution and
+     *  missed small/distant vehicles. Feed full 448 so more vehicles are found. */
+    private static final int INPUT_SIZE = 448;
+    private static final int MAX_RESULTS = 50;
     /** Native pre-filter; strict vehicle gate runs in JS before overlay/counting. */
-    private static final float MIN_SCORE = 0.35f;
+    private static final float MIN_SCORE = 0.30f;
     /** Greedy NMS — one box per physical object. */
     private static final float NMS_IOU = 0.45f;
-    /** ~25 FPS — vehicle filter drops junk before overlay/counting. */
-    private static final long MIN_INTERVAL_MS = 40L;
+    /** Throttled to leave CPU for the live video encoder — running inference
+     *  flat-out starved the encoder and WebRTC dropped the stream resolution. */
+    private static final long MIN_INTERVAL_MS = 150L;
     /** JPEG samples for server refine (~2.5 FPS). */
     private static final long JPEG_SAMPLE_INTERVAL_MS = 400L;
     private static final int JPEG_QUALITY = 65;
@@ -62,8 +66,9 @@ public final class LeadVehicleFrameAnalyzer {
                     });
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private final Object detectorLock = new Object();
-    /** If inference wedges, recover so analysis does not stop permanently. */
-    private static final long BUSY_WATCHDOG_MS = 2500L;
+    /** If inference wedges, recover so analysis does not stop permanently.
+     *  Tiled inference runs 5 passes/frame, so allow more headroom. */
+    private static final long BUSY_WATCHDOG_MS = 4000L;
 
     private volatile long busySinceMs = 0;
     private volatile boolean enabled = false;
@@ -73,11 +78,12 @@ public final class LeadVehicleFrameAnalyzer {
     private ByteBuffer inputBuffer;
     private long lastInferAtMs = 0;
     private long lastJpegAtMs = 0;
-    // Letterbox transform from the last frame (input-space → 0-1 frame space).
-    private float lbScaledW = INPUT_SIZE;
-    private float lbScaledH = INPUT_SIZE;
-    private float lbPadX = 0f;
-    private float lbPadY = 0f;
+    // Letterbox transform for the current tile pass (input-space → source px).
+    private float curScale = 1f;
+    private float curPadX = 0f;
+    private float curPadY = 0f;
+    private int curRoiX = 0;
+    private int curRoiY = 0;
 
     private LeadVehicleFrameAnalyzer() {}
 
@@ -221,54 +227,88 @@ public final class LeadVehicleFrameAnalyzer {
             long timestampMs,
             boolean includeJpeg) {
         long t0 = System.currentTimeMillis();
-        fillInputFromI420(y, u, v, width, height);
 
-        TensorImage tensorImage = new TensorImage(DataType.UINT8);
-        ImageProperties imageProps =
-                ImageProperties.builder()
-                        .setHeight(INPUT_SIZE)
-                        .setWidth(INPUT_SIZE)
-                        .setColorSpaceType(ColorSpaceType.RGB)
-                        .build();
-        tensorImage.load(inputBuffer, imageProps);
+        // Single full-frame pass. Tiled inference (4 quadrants + full frame) was
+        // too heavy for a device also encoding live video: it thermally throttled
+        // the phone and WebRTC collapsed the stream resolution after ~10-20s.
+        final int[][] rois = {
+            {0, 0, width, height},
+        };
 
-        List<Detection> results;
-        synchronized (detectorLock) {
-            if (objectDetector == null) return;
-            results = objectDetector.detect(tensorImage);
+        java.util.ArrayList<NormDet> all = new java.util.ArrayList<>();
+        for (int[] roi : rois) {
+            fillInputFromRoi(y, u, v, width, height, roi[0], roi[1], roi[2], roi[3]);
+
+            TensorImage tensorImage = new TensorImage(DataType.UINT8);
+            ImageProperties imageProps =
+                    ImageProperties.builder()
+                            .setHeight(INPUT_SIZE)
+                            .setWidth(INPUT_SIZE)
+                            .setColorSpaceType(ColorSpaceType.RGB)
+                            .build();
+            tensorImage.load(inputBuffer, imageProps);
+
+            List<Detection> results;
+            synchronized (detectorLock) {
+                if (objectDetector == null) return;
+                results = objectDetector.detect(tensorImage);
+            }
+            for (Detection detection : results) {
+                Category best = bestVehicleCategory(detection.getCategories());
+                if (best == null || best.getScore() < MIN_SCORE) continue;
+                RectF box = detection.getBoundingBox();
+                // INPUT space → source px (undo this tile's letterbox) → 0-1 frame.
+                float xmin = clamp01((curRoiX + (box.left - curPadX) / curScale) / width);
+                float ymin = clamp01((curRoiY + (box.top - curPadY) / curScale) / height);
+                float xmax = clamp01((curRoiX + (box.right - curPadX) / curScale) / width);
+                float ymax = clamp01((curRoiY + (box.bottom - curPadY) / curScale) / height);
+                if (xmax <= xmin || ymax <= ymin) continue;
+                all.add(new NormDet(xmin, ymin, xmax, ymax, best.getScore()));
+            }
         }
-        results = nmsVehicleDetections(results);
+
+        java.util.List<NormDet> kept = nmsNorm(all);
 
         long durationMs = System.currentTimeMillis() - t0;
         WritableArray detections = Arguments.createArray();
-        for (Detection detection : results) {
-            Category best = bestVehicleCategory(detection.getCategories());
-            if (best == null || best.getScore() < MIN_SCORE) continue;
-
-            RectF box = detection.getBoundingBox();
-            // Remap 320-space box back through the letterbox into 0-1 frame space.
-            float xmin = clamp01((box.left - lbPadX) / lbScaledW);
-            float ymin = clamp01((box.top - lbPadY) / lbScaledH);
-            float xmax = clamp01((box.right - lbPadX) / lbScaledW);
-            float ymax = clamp01((box.bottom - lbPadY) / lbScaledH);
-
+        for (NormDet d : kept) {
+            // Boxes are in the unrotated buffer's 0-1 space. Rotate them into the
+            // upright display space so they line up with the video the viewer sees
+            // (the frame center is rotation-invariant, which is why only centered
+            // vehicles previously appeared aligned).
+            float[] r = rotateBoxForDisplay(d.x0, d.y0, d.x1, d.y1, rotation);
             WritableMap det = Arguments.createMap();
             det.putString("vehicleType", "vehicle");
-            det.putDouble("confidence", best.getScore());
+            det.putDouble("confidence", d.score);
             WritableMap boxMap = Arguments.createMap();
-            boxMap.putDouble("x", xmin);
-            boxMap.putDouble("y", ymin);
-            boxMap.putDouble("width", Math.max(0, xmax - xmin));
-            boxMap.putDouble("height", Math.max(0, ymax - ymin));
+            boxMap.putDouble("x", r[0]);
+            boxMap.putDouble("y", r[1]);
+            boxMap.putDouble("width", r[2] - r[0]);
+            boxMap.putDouble("height", r[3] - r[1]);
             det.putMap("boundingBox", boxMap);
             detections.pushMap(det);
         }
 
+        final boolean swap = rotation == 90 || rotation == 270;
+        Log.i(
+                TAG,
+                "tiled detections="
+                        + kept.size()
+                        + " frame="
+                        + width
+                        + "x"
+                        + height
+                        + " rot="
+                        + rotation
+                        + " dur="
+                        + durationMs
+                        + "ms");
+
         WritableMap payload = Arguments.createMap();
         payload.putDouble("timestampMs", timestampMs > 0 ? timestampMs : System.currentTimeMillis());
         payload.putDouble("inferenceDurationMs", durationMs);
-        payload.putInt("frameWidth", width);
-        payload.putInt("frameHeight", height);
+        payload.putInt("frameWidth", swap ? height : width);
+        payload.putInt("frameHeight", swap ? width : height);
         payload.putInt("rotationDegrees", rotation);
         payload.putArray("detections", detections);
         if (includeJpeg) {
@@ -303,43 +343,92 @@ public final class LeadVehicleFrameAnalyzer {
         }
     }
 
-    private static List<Detection> nmsVehicleDetections(List<Detection> detections) {
-        java.util.ArrayList<Detection> vehicles = new java.util.ArrayList<>();
-        for (Detection detection : detections) {
-            if (bestVehicleCategory(detection.getCategories()) != null) {
-                vehicles.add(detection);
-            }
+    /** Detection in 0-1 frame space, produced by a tile or full-frame pass. */
+    private static final class NormDet {
+        final float x0;
+        final float y0;
+        final float x1;
+        final float y1;
+        final float score;
+
+        NormDet(float x0, float y0, float x1, float y1, float score) {
+            this.x0 = x0;
+            this.y0 = y0;
+            this.x1 = x1;
+            this.y1 = y1;
+            this.score = score;
         }
-        vehicles.sort(
-                (a, b) ->
-                        Float.compare(
-                                bestVehicleCategory(b.getCategories()).getScore(),
-                                bestVehicleCategory(a.getCategories()).getScore()));
-        java.util.ArrayList<Detection> kept = new java.util.ArrayList<>();
-        for (Detection candidate : vehicles) {
-            RectF cBox = candidate.getBoundingBox();
+    }
+
+    /** Greedy NMS across all tile + full-frame detections in 0-1 frame space. */
+    private static java.util.List<NormDet> nmsNorm(java.util.List<NormDet> dets) {
+        dets.sort((a, b) -> Float.compare(b.score, a.score));
+        java.util.ArrayList<NormDet> kept = new java.util.ArrayList<>();
+        for (NormDet cand : dets) {
             boolean overlaps = false;
-            for (Detection keptDet : kept) {
-                if (iou(cBox, keptDet.getBoundingBox()) > NMS_IOU) {
+            for (NormDet k : kept) {
+                if (iouNorm(cand, k) > NMS_IOU) {
                     overlaps = true;
                     break;
                 }
             }
-            if (!overlaps) kept.add(candidate);
+            if (!overlaps) kept.add(cand);
         }
         return kept;
     }
 
-    private static float iou(RectF a, RectF b) {
-        float ix1 = Math.max(a.left, b.left);
-        float iy1 = Math.max(a.top, b.top);
-        float ix2 = Math.min(a.right, b.right);
-        float iy2 = Math.min(a.bottom, b.bottom);
+    /**
+     * Rotate a 0-1 box from the unrotated buffer into upright display space.
+     * `rotation` is the clockwise degrees the frame must be rotated to display.
+     * Returns {x0, y0, x1, y1} in display space.
+     */
+    private static float[] rotateBoxForDisplay(
+            float x0, float y0, float x1, float y1, int rotation) {
+        float ax;
+        float ay;
+        float bx;
+        float by;
+        switch (((rotation % 360) + 360) % 360) {
+            case 90:
+                ax = 1f - y0;
+                ay = x0;
+                bx = 1f - y1;
+                by = x1;
+                break;
+            case 180:
+                ax = 1f - x0;
+                ay = 1f - y0;
+                bx = 1f - x1;
+                by = 1f - y1;
+                break;
+            case 270:
+                ax = y0;
+                ay = 1f - x0;
+                bx = y1;
+                by = 1f - x1;
+                break;
+            default:
+                ax = x0;
+                ay = y0;
+                bx = x1;
+                by = y1;
+                break;
+        }
+        return new float[] {
+            Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)
+        };
+    }
+
+    private static float iouNorm(NormDet a, NormDet b) {
+        float ix1 = Math.max(a.x0, b.x0);
+        float iy1 = Math.max(a.y0, b.y0);
+        float ix2 = Math.min(a.x1, b.x1);
+        float iy2 = Math.min(a.y1, b.y1);
         float iw = Math.max(0f, ix2 - ix1);
         float ih = Math.max(0f, iy2 - iy1);
         float inter = iw * ih;
-        float areaA = Math.max(0f, a.right - a.left) * Math.max(0f, a.bottom - a.top);
-        float areaB = Math.max(0f, b.right - b.left) * Math.max(0f, b.bottom - b.top);
+        float areaA = Math.max(0f, a.x1 - a.x0) * Math.max(0f, a.y1 - a.y0);
+        float areaB = Math.max(0f, b.x1 - b.x0) * Math.max(0f, b.y1 - b.y0);
         float union = areaA + areaB - inter;
         if (union <= 0f) return 0f;
         return inter / union;
@@ -371,29 +460,40 @@ public final class LeadVehicleFrameAnalyzer {
     }
 
     /**
-     * Letterbox the frame into INPUT_SIZE×INPUT_SIZE preserving aspect ratio, so
-     * vehicles are not distorted (a full portrait frame stretched into a square
-     * squashes cars and wrecks detection). Padding is neutral gray. The scale +
-     * pad are stored so runInference can map boxes back to 0-1 frame space.
+     * Letterbox a source ROI (roiX,roiY,roiW,roiH) into INPUT_SIZE×INPUT_SIZE
+     * preserving aspect ratio, so vehicles are not distorted. Padding is neutral
+     * gray. The scale + pad + ROI origin are stored so runInference can map boxes
+     * from INPUT space back to source px and then to 0-1 frame space.
      */
-    private void fillInputFromI420(
-            ByteBuffer yPlane, ByteBuffer uPlane, ByteBuffer vPlane, int width, int height) {
-        final float scale = Math.min((float) INPUT_SIZE / width, (float) INPUT_SIZE / height);
-        lbScaledW = width * scale;
-        lbScaledH = height * scale;
-        lbPadX = (INPUT_SIZE - lbScaledW) / 2f;
-        lbPadY = (INPUT_SIZE - lbScaledH) / 2f;
+    private void fillInputFromRoi(
+            ByteBuffer yPlane,
+            ByteBuffer uPlane,
+            ByteBuffer vPlane,
+            int width,
+            int height,
+            int roiX,
+            int roiY,
+            int roiW,
+            int roiH) {
+        final float scale = Math.min((float) INPUT_SIZE / roiW, (float) INPUT_SIZE / roiH);
+        curScale = scale;
+        curPadX = (INPUT_SIZE - roiW * scale) / 2f;
+        curPadY = (INPUT_SIZE - roiH * scale) / 2f;
+        curRoiX = roiX;
+        curRoiY = roiY;
 
         inputBuffer.rewind();
         for (int dy = 0; dy < INPUT_SIZE; dy++) {
-            float sy = (dy + 0.5f - lbPadY) / scale - 0.5f;
-            boolean rowInside = sy >= -0.5f && sy <= height - 0.5f;
+            float syRoi = (dy + 0.5f - curPadY) / scale - 0.5f;
+            float sy = roiY + syRoi;
+            boolean rowInside = syRoi >= -0.5f && syRoi <= roiH - 0.5f && sy <= height - 0.5f;
             int y0 = Math.max(0, (int) Math.floor(sy));
             int y1 = Math.min(height - 1, y0 + 1);
             float wy = sy - y0;
             for (int dx = 0; dx < INPUT_SIZE; dx++) {
-                float sx = (dx + 0.5f - lbPadX) / scale - 0.5f;
-                if (!rowInside || sx < -0.5f || sx > width - 0.5f) {
+                float sxRoi = (dx + 0.5f - curPadX) / scale - 0.5f;
+                float sx = roiX + sxRoi;
+                if (!rowInside || sxRoi < -0.5f || sxRoi > roiW - 0.5f || sx > width - 0.5f) {
                     inputBuffer.put((byte) 114);
                     inputBuffer.put((byte) 114);
                     inputBuffer.put((byte) 114);
