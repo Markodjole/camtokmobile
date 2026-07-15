@@ -12,7 +12,7 @@ function track(
     height: 0.16,
   };
   return {
-    vehicleType: "motorcycle",
+    vehicleType: "vehicle",
     classConfidence: 0.9,
     trackingConfidence: 0.85,
     boundingBox: box,
@@ -52,15 +52,15 @@ function track(
 }
 
 describe("leadVehicle.scoring", () => {
-  it("scores centered persistent motorcycle higher than large side car", () => {
-    const moto = track({
+  it("scores centered persistent vehicle higher than large side vehicle", () => {
+    const ahead = track({
       trackId: "vehicle_1",
-      vehicleType: "motorcycle",
+      vehicleType: "vehicle",
       boundingBox: { x: 0.45, y: 0.38, width: 0.1, height: 0.16 },
     });
     const parked = track({
       trackId: "vehicle_2",
-      vehicleType: "car",
+      vehicleType: "vehicle",
       boundingBox: { x: 0.78, y: 0.55, width: 0.2, height: 0.28 },
       bottomCenter: { x: 0.88, y: 0.83 },
       visibleDurationMs: 400,
@@ -89,9 +89,9 @@ describe("leadVehicle.scoring", () => {
       ],
     });
 
-    const motoScore = scoreLeadVehicle(moto).totalScore;
+    const aheadScore = scoreLeadVehicle(ahead).totalScore;
     const parkedScore = scoreLeadVehicle(parked).totalScore;
-    expect(motoScore).toBeGreaterThan(parkedScore);
+    expect(aheadScore).toBeGreaterThan(parkedScore);
   });
 
   it("returns full score breakdown", () => {

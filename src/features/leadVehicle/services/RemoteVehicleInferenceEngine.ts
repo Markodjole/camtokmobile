@@ -3,12 +3,17 @@ import type {
   VehicleFrameResult,
   VehicleInferenceStatus,
 } from "../domain/leadVehicle.types";
+import { RemoteVehicleInferClient } from "./RemoteVehicleInferClient";
 import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
 
+export type RemoteVehicleInferenceEngineOptions = {
+  sessionId?: string;
+  minIntervalMs?: number;
+};
+
 /**
- * Stub for remote sampled-frame inference.
- * Not the default. Rate-limited; never uses third-party vision APIs.
- * Backend endpoint is expected later in camtok: POST /api/live/sessions/:id/lead-vehicle/infer
+ * Remote-only sampled-frame inference (~5 FPS).
+ * Prefer `hybrid` in production — this mode skips on-device boxes entirely.
  */
 export class RemoteVehicleInferenceEngine implements VehicleInferenceEngine {
   private status: VehicleInferenceStatus = "uninitialized";
@@ -16,13 +21,16 @@ export class RemoteVehicleInferenceEngine implements VehicleInferenceEngine {
   private lastAcceptedFrameId = -1;
   private minIntervalMs: number;
   private lastSentAt = 0;
+  private remote: RemoteVehicleInferClient | null;
 
-  constructor(opts?: { minIntervalMs?: number }) {
-    this.minIntervalMs = opts?.minIntervalMs ?? 200;
+  constructor(opts: RemoteVehicleInferenceEngineOptions = {}) {
+    this.minIntervalMs = opts.minIntervalMs ?? 200;
+    this.remote = opts.sessionId
+      ? new RemoteVehicleInferClient(opts.sessionId)
+      : null;
   }
 
   async initialize(): Promise<void> {
-    // Ready as a client stub; actual HTTP will no-op until backend exists.
     this.status = "ready";
   }
 
@@ -32,7 +40,6 @@ export class RemoteVehicleInferenceEngine implements VehicleInferenceEngine {
       return empty(input, 0);
     }
     if (input.frameId < this.lastAcceptedFrameId) {
-      // Out-of-order — discard.
       return empty(input, 0);
     }
     if (this.inFlight) {
@@ -41,14 +48,31 @@ export class RemoteVehicleInferenceEngine implements VehicleInferenceEngine {
     if (Date.now() - this.lastSentAt < this.minIntervalMs) {
       return empty(input, 0);
     }
+    if (!this.remote) {
+      return empty(input, 0);
+    }
 
     this.inFlight = true;
     this.lastSentAt = Date.now();
     try {
-      // Intentionally no network call until camtok backend ships the route.
-      // Returning empty keeps tracking stable without corrupting state.
+      const result = await this.remote.infer({
+        timestampMs: input.timestampMs,
+        frameWidth: input.width,
+        frameHeight: input.height,
+        rotationDegrees: input.rotationDegrees,
+        imageBase64:
+          typeof input.imageData === "string" ? input.imageData : undefined,
+      });
       this.lastAcceptedFrameId = input.frameId;
-      return empty(input, Date.now() - t0);
+      if (!result) {
+        return empty(input, Date.now() - t0);
+      }
+      return {
+        frameId: input.frameId,
+        timestampMs: input.timestampMs,
+        inferenceDurationMs: result.inferenceDurationMs || Date.now() - t0,
+        detections: result.detections,
+      };
     } finally {
       this.inFlight = false;
     }

@@ -3,6 +3,7 @@ import type {
   VehicleDetection,
   VehicleFrameResult,
 } from "@/features/leadVehicle/domain/leadVehicle.types";
+import { normalizeVehicleType } from "@/features/leadVehicle/domain/leadVehicle.normalize";
 
 export type NativeDetectionPayload = {
   timestampMs: number;
@@ -17,22 +18,6 @@ export type NativeDetectionPayload = {
   }>;
 };
 
-const VEHICLE_TYPES = new Set<SupportedVehicleType>([
-  "car",
-  "motorcycle",
-  "bus",
-  "truck",
-  "bicycle",
-  "unknown_vehicle",
-]);
-
-function asVehicleType(raw: string): SupportedVehicleType {
-  if (VEHICLE_TYPES.has(raw as SupportedVehicleType)) {
-    return raw as SupportedVehicleType;
-  }
-  return "unknown_vehicle";
-}
-
 /** Shared mapper (no React Native imports — safe for vitest). */
 export function mapNativeDetections(
   payload: NativeDetectionPayload,
@@ -41,7 +26,7 @@ export function mapNativeDetections(
   const detections: VehicleDetection[] = (payload.detections ?? []).map(
     (d, i) => ({
       detectionId: `n-${frameId}-${i}`,
-      vehicleType: asVehicleType(d.vehicleType),
+      vehicleType: normalizeVehicleType(d.vehicleType),
       confidence: d.confidence,
       boundingBox: {
         x: d.boundingBox.x,
@@ -55,6 +40,9 @@ export function mapNativeDetections(
     frameId,
     timestampMs: payload.timestampMs || Date.now(),
     inferenceDurationMs: payload.inferenceDurationMs || 0,
+    frameWidth: payload.frameWidth,
+    frameHeight: payload.frameHeight,
+    rotationDegrees: payload.rotationDegrees,
     detections,
   };
 }

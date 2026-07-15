@@ -56,7 +56,7 @@ export function LeadVehicleDebugOverlay({
               key={`det-${i}`}
               box={d.boundingBox}
               color="rgba(250,204,21,0.85)"
-              label={`${d.vehicleType} ${(d.confidence * 100).toFixed(0)}%`}
+              label={`vehicle ${(d.confidence * 100).toFixed(0)}%`}
             />
           ))}
           {tracks.map((t) => {
@@ -66,7 +66,7 @@ export function LeadVehicleDebugOverlay({
                 key={t.trackId}
                 box={t.boundingBox}
                 color={isLead ? "rgba(34,197,94,0.95)" : "rgba(96,165,250,0.8)"}
-                label={`${t.trackId} ${t.vehicleType}`}
+                label={isLead ? `LEAD ${t.trackId}` : t.trackId}
                 thick={isLead}
               />
             );
@@ -105,7 +105,7 @@ export function LeadVehicleDebugOverlay({
           {lead ? (
             <>
               <Text style={line}>
-                lead {lead.trackId} · {lead.vehicleType} · {lead.relativeState}
+                lead {lead.trackId} · {lead.relativeState}
               </Text>
               <Text style={line}>
                 conf {lead.confidence.toFixed(2)} · sameDir{" "}
@@ -114,7 +114,7 @@ export function LeadVehicleDebugOverlay({
               </Text>
             </>
           ) : (
-            <Text style={line}>lead: none (mock will spawn a car ~1s)</Text>
+            <Text style={line}>lead: none (mock will spawn a vehicle ~1s)</Text>
           )}
           <Text style={line}>
             prediction {readiness.ready ? "READY" : "blocked"}

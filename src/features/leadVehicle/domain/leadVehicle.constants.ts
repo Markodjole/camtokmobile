@@ -6,19 +6,12 @@ import type {
 } from "./leadVehicle.types";
 
 export const DEFAULT_LEAD_VEHICLE_MODEL_CONFIG: LeadVehicleModelConfig = {
-  modelName: "coco_ssd_mobilenet_v1",
-  modelVersion: "1.0_quant_2018_06_29",
-  inputWidth: 300,
-  inputHeight: 300,
-  minimumDetectionConfidence: 0.55,
-  supportedClasses: [
-    "car",
-    "motorcycle",
-    "bus",
-    "truck",
-    "bicycle",
-    "unknown_vehicle",
-  ],
+  modelName: "efficientdet_lite2",
+  modelVersion: "mediapipe_int8_1",
+  inputWidth: 320,
+  inputHeight: 320,
+  minimumDetectionConfidence: 0.35,
+  supportedClasses: ["vehicle", "unknown_vehicle"],
 };
 
 export const DEFAULT_FORWARD_CORRIDOR: ForwardCorridor = {
@@ -39,7 +32,15 @@ export const DEFAULT_TRACKER_CONFIG: VehicleTrackerConfig = {
 };
 
 /** Target analysis rate — also mirrored in native LeadVehicleFrameAnalyzer. */
-export const DEFAULT_INFERENCE_FPS = 18;
+export const DEFAULT_INFERENCE_FPS = 25;
+
+/** Remote refine pass while on-device drives the overlay (hybrid mode). */
+export const HYBRID_REMOTE_INTERVAL_MS = 500;
+/** Discard stale server boxes — remote is a refine layer, not the live path. */
+export const HYBRID_REMOTE_CACHE_MS = 2000;
+export const FUSION_MATCH_IOU = 0.35;
+/** Server-only boxes must be confident — avoids phantom vehicles from lagged frames. */
+export const REMOTE_ONLY_MIN_CONFIDENCE = 0.55;
 
 export const LEAD_SWITCH_SCORE_MARGIN = 0.15;
 export const LEAD_SWITCH_CONFIRMATION_MS = 500;
@@ -63,7 +64,4 @@ export const SCORE_WEIGHTS = {
   size: 0.1,
 } as const;
 
-export const PRIMARY_VEHICLE_TYPES: SupportedVehicleType[] = [
-  "car",
-  "motorcycle",
-];
+export const PRIMARY_VEHICLE_TYPES: SupportedVehicleType[] = ["vehicle"];

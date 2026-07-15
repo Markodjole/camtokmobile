@@ -41,7 +41,7 @@ RCT_EXPORT_METHOD(getStatus:(RCTPromiseResolveBlock)resolve
         @"available": @(a.isAvailable),
         @"enabled": @(a.isEnabled),
         @"detail": a.statusDetail ?: @"",
-        @"modelName": @"coco_ssd_mobilenet_v1",
+        @"modelName": @"efficientdet_lite0",
         @"modelVersion": @"1.0_quant_2018_06_29",
     });
 }

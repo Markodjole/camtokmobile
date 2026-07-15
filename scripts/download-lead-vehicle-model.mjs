@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Downloads the Apache-licensed COCO SSD MobileNet v1 quantized TFLite model
- * used by on-device lead-vehicle detection.
+ * Downloads MediaPipe EfficientDet-Lite2 (int8) for on-device vehicle detection.
+ * Lite2 is materially more accurate than Lite0 on road scenes while still mobile-friendly.
  *
- * https://www.tensorflow.org/lite/examples/object_detection/overview
+ * https://developers.google.com/mediapipe/solutions/vision/object_detector
  */
-import { copyFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const outDir = path.join(root, "assets/models");
-const outFile = path.join(outDir, "coco_ssd_mobilenet_v1.tflite");
-const zipUrl =
-  "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip";
+const outFile = path.join(outDir, "efficientdet_lite2.tflite");
+const modelUrl =
+  "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite2/int8/1/efficientdet_lite2.tflite";
 
 mkdirSync(outDir, { recursive: true });
 if (existsSync(outFile)) {
@@ -23,19 +23,6 @@ if (existsSync(outFile)) {
   process.exit(0);
 }
 
-const tmpZip = path.join(outDir, "coco_ssd.zip");
-console.log("Downloading", zipUrl);
-execFileSync("curl", ["-fsSL", "-o", tmpZip, zipUrl], { stdio: "inherit" });
-execFileSync("unzip", ["-o", tmpZip, "-d", outDir], { stdio: "inherit" });
-const detect = path.join(outDir, "detect.tflite");
-if (!existsSync(detect)) {
-  console.error("detect.tflite missing after unzip");
-  process.exit(1);
-}
-copyFileSync(detect, outFile);
-try {
-  unlinkSync(tmpZip);
-} catch {
-  // ignore
-}
+console.log("Downloading", modelUrl);
+execFileSync("curl", ["-fsSL", "-o", outFile, modelUrl], { stdio: "inherit" });
 console.log("Wrote", outFile);

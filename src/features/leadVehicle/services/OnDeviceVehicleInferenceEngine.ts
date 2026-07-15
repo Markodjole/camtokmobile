@@ -42,7 +42,7 @@ export class OnDeviceVehicleInferenceEngine implements VehicleInferenceEngine {
       this.status = "unsupported";
       return;
     }
-    await leadVehicleNativeSetEnabled(true);
+    // Native analysis is enabled by the pipeline when counting is active.
     this.unsubscribe = subscribeLeadVehicleDetections((payload) => {
       this.frameId += 1;
       const result = mapNativeDetections(payload, this.frameId);

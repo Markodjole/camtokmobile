@@ -66,6 +66,46 @@ export class LeadVehicleTelemetryClient {
     await this.send(mapped);
   }
 
+  /** Rush Hour–style timed count round telemetry. */
+  async publishRoundCount(args: {
+    rideId: string;
+    sessionId: string;
+    timestampMs: number;
+    roundId: string | null;
+    roundCount: number;
+    vehiclesOnScreen: number;
+    counting: boolean;
+    final?: boolean;
+    detections?: LeadVehicleOverlayDetection[];
+  }): Promise<void> {
+    if (!this.opts.enabled) return;
+    const mapped: LeadVehicleTelemetryEvent = {
+      eventType: "vehicle_count_round",
+      rideId: args.rideId,
+      riderId: this.opts.riderId,
+      sessionId: args.sessionId,
+      timestampMs: args.timestampMs,
+      payload: {
+        roundId: args.roundId ?? undefined,
+        roundCount: args.roundCount,
+        vehiclesOnScreen: args.vehiclesOnScreen,
+        roundCounting: args.counting,
+        roundFinal: args.final === true,
+        detections: args.detections,
+        vehiclesPassed: args.roundCount,
+      },
+      modelMetadata: {
+        modelName:
+          this.opts.modelName ?? DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.modelName,
+        modelVersion:
+          this.opts.modelVersion ??
+          DEFAULT_LEAD_VEHICLE_MODEL_CONFIG.modelVersion,
+        inferenceMode: this.inferenceMode(),
+      },
+    };
+    await this.send(mapped);
+  }
+
   /** Viewer overlay frame — works even with no locked lead. */
   async publishOverlayFrame(args: {
     rideId: string;

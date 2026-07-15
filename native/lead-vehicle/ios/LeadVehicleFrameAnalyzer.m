@@ -33,11 +33,11 @@
 }
 
 - (void)ensureInitialized {
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"coco_ssd_mobilenet_v1"
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"efficientdet_lite2"
                                                      ofType:@"tflite"
                                                 inDirectory:@"models"];
     if (path.length == 0) {
-        path = [[NSBundle mainBundle] pathForResource:@"coco_ssd_mobilenet_v1" ofType:@"tflite"];
+        path = [[NSBundle mainBundle] pathForResource:@"efficientdet_lite2" ofType:@"tflite"];
     }
     if (path.length == 0) {
         _available = NO;

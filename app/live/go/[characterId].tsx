@@ -24,7 +24,8 @@ import { useMapTilePreload } from "@/hooks/useMapTilePreload";
 import { useLiveBroadcastStore } from "@/stores/liveBroadcastStore";
 import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 import type { TransportMode } from "@/types/live";
-import { TWO_WHEELED_MODES } from "@/lib/transportMode";
+import { BroadcastPermissionsCard } from "@/components/live/BroadcastPermissionsCard";
+import { useBroadcastPermissions } from "@/hooks/useBroadcastPermissions";
 
 const RECENT_DESTINATIONS_KEY = "camtok:recent_destinations";
 const MAX_RECENT = 5;
@@ -124,6 +125,13 @@ export default function GoLiveControlScreen() {
   const { data: myCharacters } = useMyCharacters();
   const characterName =
     myCharacters?.find((c) => c.id === characterId)?.name ?? null;
+  const {
+    snapshot: permissionSnapshot,
+    requesting: permissionsRequesting,
+    ready: permissionsReady,
+    requestAll: requestBroadcastPermissions,
+    openSettings: openBroadcastSettings,
+  } = useBroadcastPermissions();
 
   // Prefill destination when rider shared a Maps place into CamTok.
   const pendingShared = useSharedDestinationStore((s) => s.pending);
@@ -214,6 +222,15 @@ export default function GoLiveControlScreen() {
     destinationOverride?: typeof destination;
   }) {
     if (!characterId) return;
+    if (!permissionsReady) {
+      const next = await requestBroadcastPermissions();
+      if (!next.ready) {
+        setError(
+          "Camera, microphone, and location are required before going live.",
+        );
+        return;
+      }
+    }
     const dest = opts?.destinationOverride ?? destination;
     setStarting(true);
     setError(null);
@@ -262,14 +279,23 @@ export default function GoLiveControlScreen() {
     }
   }
 
-  // One-tap ride: if Maps already shared a destination, start immediately.
+  // One-tap ride: if Maps already shared a destination, start once permissions are ready.
   useEffect(() => {
     if (autoStartedRef.current || sessionId || starting) return;
+    if (!permissionsReady || permissionsRequesting) return;
     if (!sharedFromMaps || !destination || !characterId) return;
     autoStartedRef.current = true;
     void goLive({ destinationOverride: destination });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sharedFromMaps, destination, characterId, sessionId, starting]);
+  }, [
+    sharedFromMaps,
+    destination,
+    characterId,
+    sessionId,
+    starting,
+    permissionsReady,
+    permissionsRequesting,
+  ]);
 
   function queueDestinationSearch(text: string) {
     const q = text.trim();
@@ -377,6 +403,16 @@ export default function GoLiveControlScreen() {
         contentContainerStyle={{ padding: 16, gap: 16 }}
       >
         <View style={{ gap: 16 }}>
+            <BroadcastPermissionsCard
+              snapshot={permissionSnapshot}
+              requesting={permissionsRequesting}
+              onRequestAll={() => {
+                void requestBroadcastPermissions();
+              }}
+              onOpenSettings={() => {
+                void openBroadcastSettings();
+              }}
+            />
             <Card>
               <CardTitle>Transport mode</CardTitle>
               <CardDescription>
@@ -564,9 +600,14 @@ export default function GoLiveControlScreen() {
               }
               onPress={() => void goLive()}
               loading={starting}
-              disabled={starting}
+              disabled={starting || permissionsRequesting || !permissionsReady}
               fullWidth
             />
+            {!permissionsReady && !permissionsRequesting ? (
+              <Text className="text-center text-xs text-muted-foreground">
+                Allow camera, microphone, and location above to go live.
+              </Text>
+            ) : null}
           </View>
       </ScrollView>
     </Screen>

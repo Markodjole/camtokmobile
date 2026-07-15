@@ -8,6 +8,8 @@
     "start:tunnel": "node scripts/start-tunnel.mjs",
     "ios": "expo run:ios",
     "android": "expo run:android --device",
+    "build:local:android": "expo prebuild --platform android && cd android && ./gradlew :app:assembleDebug",
+    "android:install": "bash scripts/install-android-debug.sh",
     "build:dev:android": "eas build --profile development --platform android",
     "build:dev:ios": "eas build --profile development --platform ios",
     "build:prod:android": "eas build --profile production --platform android",

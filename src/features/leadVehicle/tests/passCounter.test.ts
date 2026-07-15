@@ -10,7 +10,7 @@ function det(
   opts?: { confidence?: number; vehicleType?: SupportedVehicleType },
 ): VehicleDetection {
   return {
-    vehicleType: opts?.vehicleType ?? "car",
+    vehicleType: opts?.vehicleType ?? "vehicle",
     confidence: opts?.confidence ?? 0.7,
     boundingBox: { x, y, width: w, height: h },
   };
@@ -83,6 +83,16 @@ describe("VehiclePassCounter vehicle-certainty first", () => {
     c.observeDetections([det(0.4, 0.43, 0.09, 0.09)], 520);
     c.observeDetections([], 620);
     expect(c.observeDetections([], 720).vehiclesPassed).toBe(-1);
+  });
+
+  it("+1 on a single ultra-confident flyby frame", () => {
+    const c = new VehiclePassCounter();
+    c.observeDetections(
+      [det(0.42, 0.55, 0.16, 0.18, { confidence: 0.74 })],
+      0,
+    );
+    c.observeDetections([], 80);
+    expect(c.observeDetections([], 160).vehiclesPassed).toBe(1);
   });
 
   it("counts multiple vehicles in a column independently", () => {

@@ -6,7 +6,8 @@ import {
 } from "../domain/leadVehicle.constants";
 import { lateralPositionFromX } from "../domain/leadVehicle.geometry";
 import { classifyRelativeMovement } from "../domain/leadVehicle.motion";
-import { VehiclePassCounter } from "../domain/leadVehicle.passCounter";
+import { filterVehicleDetections } from "../domain/leadVehicle.vehicleFilter";
+import { normalizeVehicleDetections } from "../domain/leadVehicle.normalize";
 import { computePredictionReadiness } from "../domain/leadVehicle.prediction";
 import {
   estimateSameDirectionConfidence,
@@ -26,14 +27,23 @@ import type {
   VehicleDetection,
   VehicleFrameInput,
 } from "../domain/leadVehicle.types";
-import type { VehiclePassCounterSnapshot } from "../domain/leadVehicle.passCounter";
+import {
+  VehiclePassCounter,
+  type VehiclePassCounterSnapshot,
+} from "../domain/leadVehicle.passCounter";
 import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
-import { createVehicleInferenceEngine } from "./createVehicleInferenceEngine";
+import {
+  createVehicleInferenceEngine,
+  engineSupportsPushFrames,
+} from "./createVehicleInferenceEngine";
 import { LeadVehicleEventEmitter } from "./LeadVehicleEventEmitter";
 import { LeadVehicleTelemetryClient } from "./LeadVehicleTelemetryClient";
 import type { LeadVehicleOverlayDetection } from "./LeadVehicleTelemetryClient";
 import { LeadVehicleTracker } from "./LeadVehicleTracker";
-import { OnDeviceVehicleInferenceEngine } from "./OnDeviceVehicleInferenceEngine";
+import {
+  leadVehicleNativePresent,
+  leadVehicleNativeSetEnabled,
+} from "@/lib/leadVehicleNative";
 
 export type LeadVehiclePipelineOptions = {
   rideId: string;
@@ -103,7 +113,11 @@ export class LeadVehiclePipeline {
     this.opts = opts;
     this.corridor = opts.corridor ?? DEFAULT_FORWARD_CORRIDOR;
     this.inferenceFps = opts.inferenceFps ?? DEFAULT_INFERENCE_FPS;
-    this.engine = opts.engine ?? createVehicleInferenceEngine(opts.inferenceMode);
+    this.engine =
+      opts.engine ??
+      createVehicleInferenceEngine(opts.inferenceMode, {
+        sessionId: opts.sessionId,
+      });
     this.telemetry = new LeadVehicleTelemetryClient({
       enabled: opts.telemetryEnabled === true,
       includeBoundingBoxes: opts.includeBoundingBoxes !== false,
@@ -172,10 +186,13 @@ export class LeadVehiclePipeline {
       await this.engine.initialize();
       const st = this.engine.getStatus();
       if (st === "unsupported") {
-        if (this.opts.inferenceMode === "on_device") {
+        if (
+          this.opts.inferenceMode === "on_device" ||
+          this.opts.inferenceMode === "hybrid"
+        ) {
           // Dev client / iOS without linked TFLite → keep UX working via mock.
           console.warn(
-            "[leadVehicle] on_device unavailable in this build; falling back to mock",
+            `[leadVehicle] ${this.opts.inferenceMode} unavailable in this build; falling back to mock`,
           );
           this.engine = createVehicleInferenceEngine("mock");
           await this.engine.initialize();
@@ -201,7 +218,7 @@ export class LeadVehiclePipeline {
       this.status = "searching";
       this.notify();
 
-      if (this.engine instanceof OnDeviceVehicleInferenceEngine) {
+      if (engineSupportsPushFrames(this.engine)) {
         this.engine.attachFrameHandler((result) => {
           this.inferenceDurations.push(result.inferenceDurationMs);
           if (this.inferenceDurations.length > 30) this.inferenceDurations.shift();
@@ -218,6 +235,13 @@ export class LeadVehiclePipeline {
             );
           });
         });
+        if (
+          leadVehicleNativePresent() &&
+          (this.opts.inferenceMode === "on_device" ||
+            this.opts.inferenceMode === "hybrid")
+        ) {
+          await leadVehicleNativeSetEnabled(true);
+        }
       }
 
       if (this.opts.inferenceMode === "mock") {
@@ -474,9 +498,12 @@ export class LeadVehiclePipeline {
     detections: VehicleDetection[],
     timestampMs: number,
   ): Promise<void> {
-    this.lastDetections = detections;
+    const vehicles = filterVehicleDetections(
+      normalizeVehicleDetections(detections),
+    );
+    this.lastDetections = vehicles;
     const { tracks, removed: _removed } = this.tracker.update(
-      detections,
+      vehicles,
       timestampMs,
     );
     const mature = this.tracker.matureTracks();
@@ -484,7 +511,7 @@ export class LeadVehiclePipeline {
     // Pass counting uses raw detections with a dedicated loose matcher —
     // not the sticky lead tracker (which was under-counting fast flybys).
     this.lastPassSnapshot = this.passCounter.observeDetections(
-      detections,
+      vehicles,
       timestampMs,
     );
 

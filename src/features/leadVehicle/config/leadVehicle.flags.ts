@@ -4,9 +4,9 @@
  *
  * EXPO_PUBLIC_LEAD_VEHICLE_TRACKING=1
  * EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY=1
- * EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1
+ * EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1   → enables hybrid (on-device + server refine)
  * EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY=1
- * EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock|on_device|remote
+ * EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock|on_device|remote|hybrid
  */
 
 import type { InferenceMode } from "../domain/leadVehicle.types";
@@ -40,10 +40,22 @@ export function leadVehicleTelemetryEnabled(): boolean {
 }
 
 export function leadVehicleInferenceMode(): InferenceMode {
-  if (leadVehicleRemoteInferenceEnabled()) return "remote";
   const raw = process.env.EXPO_PUBLIC_LEAD_VEHICLE_MODE;
-  if (raw === "on_device" || raw === "remote" || raw === "mock") return raw;
-  // Prefer real detections when the native module is present; mock otherwise.
-  // Native availability is checked at engine init — unsupported → error UI.
+  if (
+    raw === "on_device" ||
+    raw === "remote" ||
+    raw === "hybrid" ||
+    raw === "mock"
+  ) {
+    return raw;
+  }
+  if (leadVehicleRemoteInferenceEnabled()) return "hybrid";
   return "on_device";
+}
+
+/** Rush Hour–style timed count rounds (default). Set =0 to use legacy lead tracking. */
+export function vehicleCountRoundEnabled(): boolean {
+  const raw = process.env.EXPO_PUBLIC_VEHICLE_COUNT_ROUND;
+  if (raw === "0" || raw === "false") return false;
+  return true;
 }

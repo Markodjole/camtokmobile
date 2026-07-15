@@ -52,7 +52,7 @@ public class LeadVehicleModule extends ReactContextBaseJavaModule {
         map.putBoolean("available", analyzer.isAvailable());
         map.putBoolean("enabled", analyzer.isEnabled());
         map.putString("detail", analyzer.getStatusDetail());
-        map.putString("modelName", "coco_ssd_mobilenet_v1");
+        map.putString("modelName", "efficientdet_lite0");
         map.putString("modelVersion", "1.0_quant_2018_06_29");
         promise.resolve(map);
     }

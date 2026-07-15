@@ -5,6 +5,8 @@ import { Screen } from "@/components/ui/Screen";
 import { useMyCharacters } from "@/hooks/useMyCharacters";
 import { useSharedDestinationStore } from "@/stores/sharedDestinationStore";
 
+import { useBroadcastPermissions } from "@/hooks/useBroadcastPermissions";
+
 /**
  * Auto-picks the logged-in user's character and continues to go-live.
  * No character picker when the account already owns a profile.
@@ -15,6 +17,7 @@ export default function GoLivePickerScreen() {
   const redirected = useRef(false);
   const pending = useSharedDestinationStore((s) => s.pending);
   const lastError = useSharedDestinationStore((s) => s.lastError);
+  useBroadcastPermissions();
 
   useEffect(() => {
     if (redirected.current || isLoading || error) return;

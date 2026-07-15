@@ -53,15 +53,14 @@ export class LeadVehicleTracker {
     const usedDetections = new Set<number>();
     const removed: TrackedVehicle[] = [];
 
-    // Greedy IoU association, prefer same class.
+    // Greedy IoU association.
     const pairs: { trackId: VehicleTrackId; detIdx: number; score: number }[] =
       [];
     for (const [trackId, track] of this.tracks) {
       detections.forEach((det, detIdx) => {
         const overlap = iou(track.boundingBox, det.boundingBox);
         if (overlap < this.config.minimumIoU) return;
-        const classBonus = track.vehicleType === det.vehicleType ? 0.05 : 0;
-        pairs.push({ trackId, detIdx, score: overlap + classBonus });
+        pairs.push({ trackId, detIdx, score: overlap });
       });
     }
     pairs.sort((a, b) => b.score - a.score);

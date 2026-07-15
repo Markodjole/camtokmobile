@@ -7,7 +7,7 @@ function vehicle(partial?: Partial<LeadVehicleSnapshot>): LeadVehicleSnapshot {
     timestampMs: 1000,
     sessionId: "s1",
     trackId: "vehicle_1",
-    vehicleType: "car",
+    vehicleType: "vehicle",
     boundingBox: { x: 0.4, y: 0.4, width: 0.1, height: 0.1 },
     confidence: 0.8,
     sameDirectionConfidence: 0.7,

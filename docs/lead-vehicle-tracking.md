@@ -28,18 +28,25 @@ This is **not** ANPR / plate OCR / facial recognition. Temporary session track I
 
 ## Selected inference approach (v1)
 
-1. **`on_device` (default)** — COCO SSD MobileNet TFLite on the WebRTC frame processor (same camera as the stream). Android is live after a dev-client rebuild; iOS reports unavailable until TensorFlowLiteObjC is linked.
-2. **`mock`** — deterministic scenario engine for UI / CI without a camera or model.
-3. **`remote`** — stub client with rate limits; HTTP no-op until camtok adds `POST .../lead-vehicle/infer`.
+1. **`hybrid` (recommended when server infer exists)** — on-device Lite2 at full rate for responsive boxes; server refine every ~500ms via `POST .../lead-vehicle/infer` boosts accuracy. If the API is missing, hybrid degrades gracefully to on-device only.
+2. **`on_device` (default)** — EfficientDet-Lite2 only on the WebRTC frame processor. All COCO vehicle classes collapse to **`vehicle`**.
+3. **`mock`** — deterministic scenario engine for UI / CI without a camera or model.
+4. **`remote`** — server-only (~5 FPS). Use when on-device is unavailable; slower overlay.
+
+Set `EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1` or `EXPO_PUBLIC_LEAD_VEHICLE_MODE=hybrid` to enable hybrid.
 
 If `on_device` is unavailable in the binary, the pipeline **falls back to mock** so go-live still works.
 
 Public interface is identical for all three: `VehicleInferenceEngine`.
 
+### Why this is harder than Rush Hour CCTV
+
+[Rush Hour](https://rush-hour.tv/) runs **server-side** computer vision on **fixed municipal CCTV** feeds (stable angle, no motion blur, wired power). CamTok runs **on-device** on a **moving motorcycle camera** over WebRTC — a much harder problem. For Rush Hour–grade accuracy on mobile, the long-term path is **`remote` inference** (sampled JPEG frames → camtok GPU → detections back), which we have stubbed but not shipped yet.
+
 ## Native dependencies
 
 - Expo plugin `plugins/withLeadVehicleDetect.js` copies `native/lead-vehicle/` into prebuild, registers `LeadVehiclePackage`, and adds `org.tensorflow:tensorflow-lite:2.14.0`.
-- Model: `yarn download:lead-vehicle-model` → `assets/models/coco_ssd_mobilenet_v1.tflite` (gitignored; Apache-2.0 TensorFlow Lite example weights).
+- Model: `yarn download:lead-vehicle-model` → `assets/models/efficientdet_lite2.tflite` (gitignored; MediaPipe EfficientDet-Lite2 int8, Apache-2.0).
 - Frame hook: `TopCropVideoFrameProcessor` crops then calls `LeadVehicleFrameAnalyzer.maybeAnalyze` off-thread (~8 FPS).
 
 ## Module layout
@@ -74,8 +81,8 @@ native/lead-vehicle/
 | (unset in `__DEV__`) | Tracking enabled by default in development |
 | `EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY=1` | Force debug overlay |
 | (unset in `__DEV__`) | Overlay on in development |
-| `EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock\|on_device\|remote` | Engine selection (default `on_device`) |
-| `EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1` | Force remote engine |
+| `EXPO_PUBLIC_LEAD_VEHICLE_MODE=mock\|on_device\|remote\|hybrid` | Engine selection (default `on_device`, or `hybrid` when `REMOTE=1`) |
+| `EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1` | Enable hybrid (on-device + server refine) |
 | `EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY=1` | POST events to camtok REST |
 
 ## Enable on-device
@@ -134,7 +141,19 @@ Camtok:
 - Newest-frame-wins backpressure; dropped frames counted
 - Live WebRTC remains higher priority than AI
 
-## Known limitations
+## Rush Hour–style count rounds (default)
+
+Timed markets — **no continuous lead tracking**:
+
+1. **Betting** (~12s) — market open, inference **off**
+2. **Counting** (30s after lock) — on-device detection **on**, line-cross counter runs
+3. **Settle** — winner from final count (`< 2`, `2–4`, `> 4`)
+
+Set `EXPO_PUBLIC_VEHICLE_COUNT_ROUND=0` to fall back to legacy lead-vehicle tracking.
+
+Mobile: `VehicleCountRoundPipeline` + `useVehicleCountRound`  
+Backend: `vehicle_count_30s` market via room tick + `vehicleCount30sResolver`
+
 
 - **On-device detection not verified** — no model packaged yet
 - Mock scenario is synthetic, not road truth

@@ -1,33 +1,27 @@
 import { boxCenter } from "./leadVehicle.geometry";
+import {
+  isLikelyVehicleDetection,
+  filterVehicleDetections,
+} from "./leadVehicle.vehicleFilter";
 import type {
   NormalizedBoundingBox,
   SupportedVehicleType,
   VehicleDetection,
 } from "./leadVehicle.types";
 
-/**
- * Accuracy gate = "is this a real vehicle?", not box-growth theatre.
- * Growth/shrink only separates +1 (we passed) vs −1 (they passed).
- */
-
-const VEHICLE_TYPES = new Set<SupportedVehicleType>([
-  "car",
-  "motorcycle",
-  "bus",
-  "truck",
-  "bicycle",
-]);
-
-/** Detector must be sure it's a vehicle. */
-export const PASS_MIN_CONFIDENCE = 0.55;
+/** Pass counting thresholds — separate from vehicle-or-not gate. */
+export const PASS_MIN_CONFIDENCE = 0.5;
 /** Fast motorcycle cut: shorter track OK if confidence is higher. */
-export const PASS_FAST_CONFIDENCE = 0.65;
-export const PASS_MIN_AREA = 0.01;
-export const PASS_MATCH_DIST = 0.24;
-export const PASS_MAX_MISSES = 2;
+export const PASS_FAST_CONFIDENCE = 0.55;
+/** Single-frame flyby when the detector is very sure. */
+export const PASS_ULTRA_CONFIDENCE = 0.68;
+export const PASS_MIN_AREA = 0.008;
+export const PASS_MATCH_DIST = 0.28;
+export const PASS_MAX_MISSES = 4;
 
-export const WE_MIN_HITS = 3;
-export const WE_FAST_MIN_HITS = 2;
+export const WE_MIN_HITS = 2;
+export const WE_FAST_MIN_HITS = 1;
+export const WE_ULTRA_MIN_MS = 40;
 
 export const THEY_MIN_HITS = 6;
 export const THEY_MIN_MS = 450;
@@ -71,12 +65,10 @@ type PassBlob = {
 let nextPassId = 1;
 
 function isSureVehicle(d: VehicleDetection): boolean {
-  if (!VEHICLE_TYPES.has(d.vehicleType)) return false;
-  if (d.vehicleType === "unknown_vehicle") return false;
-  if (d.confidence < PASS_MIN_CONFIDENCE) return false;
-  const a = d.boundingBox.width * d.boundingBox.height;
-  return a >= PASS_MIN_AREA;
+  return isLikelyVehicleDetection(d) && d.confidence >= PASS_MIN_CONFIDENCE;
 }
+
+export { filterVehicleDetections, isLikelyVehicleDetection };
 
 /**
  * Count every sure vehicle in the column (not just lead).
@@ -113,9 +105,7 @@ export class VehiclePassCounter {
         const bc = boxCenter(blob.lastBox);
         const dist = Math.hypot(c.x - bc.x, c.y - bc.y);
         if (dist > PASS_MATCH_DIST) return;
-        // Prefer same class continuity.
-        const classPenalty = det.vehicleType === blob.vehicleType ? 0 : 0.06;
-        pairs.push({ blobId, detIdx, dist: dist + classPenalty });
+        pairs.push({ blobId, detIdx, dist });
       });
     }
     pairs.sort((a, b) => a.dist - b.dist);
@@ -193,13 +183,6 @@ export class VehiclePassCounter {
     blob.lastArea = area;
     blob.lastCenterY = c.y;
     blob.peakConfidence = Math.max(blob.peakConfidence, det.confidence);
-    // Keep first class unless new one is much more confident.
-    if (
-      det.vehicleType !== blob.vehicleType &&
-      det.confidence >= blob.peakConfidence
-    ) {
-      blob.vehicleType = det.vehicleType;
-    }
     blob.lastBox = box;
     blob.areas.push(area);
     if (blob.areas.length > AREA_HISTORY) blob.areas.shift();
@@ -211,7 +194,7 @@ export class VehiclePassCounter {
       this.finalized.add(blob.id);
       return;
     }
-    if (!VEHICLE_TYPES.has(blob.vehicleType)) {
+    if (blob.vehicleType !== "vehicle") {
       this.finalized.add(blob.id);
       return;
     }
@@ -239,6 +222,14 @@ export class VehiclePassCounter {
 }
 
 function hasEnoughSightings(blob: PassBlob): boolean {
+  const visibleMs = blob.lastSeenAtMs - blob.firstSeenAtMs;
+  if (
+    blob.peakConfidence >= PASS_ULTRA_CONFIDENCE &&
+    blob.hits >= WE_FAST_MIN_HITS &&
+    visibleMs >= WE_ULTRA_MIN_MS
+  ) {
+    return true;
+  }
   if (blob.peakConfidence >= PASS_FAST_CONFIDENCE) {
     return blob.hits >= WE_FAST_MIN_HITS;
   }

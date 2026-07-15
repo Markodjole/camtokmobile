@@ -16,5 +16,6 @@ export interface VehicleInferenceEngine {
 }
 
 export type CreateInferenceEngineOptions = {
-  mode: "on_device" | "remote" | "mock";
+  mode: "on_device" | "remote" | "hybrid" | "mock";
+  sessionId?: string;
 };

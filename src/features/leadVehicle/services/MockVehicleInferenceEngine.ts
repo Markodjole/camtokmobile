@@ -99,7 +99,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
       const t = (ms - 400) / 1000;
       return [
         {
-          vehicleType: "car",
+          vehicleType: "vehicle",
           confidence: Math.min(0.95, 0.6 + t * 0.25),
           boundingBox: {
             x: 0.46,
@@ -113,7 +113,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
     case "car_stable":
       return [
         {
-          vehicleType: "car",
+          vehicleType: "vehicle",
           confidence: 0.9,
           boundingBox: { x: 0.44, y: 0.4, width: 0.14, height: 0.18 },
         },
@@ -122,7 +122,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
       const t = (ms - 4500) / 1000;
       return [
         {
-          vehicleType: "car",
+          vehicleType: "vehicle",
           confidence: 0.8,
           boundingBox: {
             x: 0.44 - t * 0.12,
@@ -136,7 +136,7 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
     case "car_return":
       return [
         {
-          vehicleType: "car",
+          vehicleType: "vehicle",
           confidence: 0.85,
           boundingBox: { x: 0.45, y: 0.41, width: 0.13, height: 0.17 },
         },
@@ -144,12 +144,12 @@ function detectionsForPhase(phase: MockPhase, ms: number): VehicleDetection[] {
     case "moto_takeover":
       return [
         {
-          vehicleType: "car",
+          vehicleType: "vehicle",
           confidence: 0.5,
           boundingBox: { x: 0.72, y: 0.55, width: 0.2, height: 0.22 },
         },
         {
-          vehicleType: "motorcycle",
+          vehicleType: "vehicle",
           confidence: 0.9,
           boundingBox: { x: 0.46, y: 0.38, width: 0.1, height: 0.16 },
         },

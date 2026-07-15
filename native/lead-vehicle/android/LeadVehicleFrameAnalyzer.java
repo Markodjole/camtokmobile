@@ -1,45 +1,47 @@
 package com.camtok.mobile.leadvehicle;
 
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
+import android.graphics.RectF;
 import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 
-import org.tensorflow.lite.Interpreter;
+import org.tensorflow.lite.DataType;
+import org.tensorflow.lite.support.image.ColorSpaceType;
+import org.tensorflow.lite.support.image.ImageProperties;
+import org.tensorflow.lite.support.image.TensorImage;
+import org.tensorflow.lite.support.label.Category;
+import org.tensorflow.lite.task.core.BaseOptions;
+import org.tensorflow.lite.task.vision.detector.Detection;
+import org.tensorflow.lite.task.vision.detector.ObjectDetector;
+import org.tensorflow.lite.task.vision.detector.ObjectDetector.ObjectDetectorOptions;
 import org.webrtc.VideoFrame;
 
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Quantized COCO SSD MobileNet v1 (300×300) on WebRTC frames.
+ * MediaPipe EfficientDet-Lite2 int8 (320×320) on WebRTC frames via TFLite Task Vision.
+ * All COCO vehicle classes collapse to a single "vehicle" label for downstream logic.
  * Runs off the capture thread; newest-frame-wins when busy.
  */
 public final class LeadVehicleFrameAnalyzer {
     private static final String TAG = "LeadVehicleDetect";
-    private static final String MODEL_ASSET = "models/coco_ssd_mobilenet_v1.tflite";
-    private static final int INPUT_SIZE = 300;
-    private static final int NUM_DETECTIONS = 10;
-    private static final float MIN_SCORE = 0.55f;
-    /** ~18 FPS — enough samples; confidence gate is what blocks hallucinations. */
-    private static final long MIN_INTERVAL_MS = 55L;
-
-    /** COCO label indices we care about (1-based in labelmap; 0 = ???). */
-    private static final int CLASS_BICYCLE = 2;
-    private static final int CLASS_CAR = 3;
-    private static final int CLASS_MOTORCYCLE = 4;
-    private static final int CLASS_BUS = 6;
-    private static final int CLASS_TRUCK = 8;
+    private static final String MODEL_ASSET = "models/efficientdet_lite2.tflite";
+    private static final int INPUT_SIZE = 320;
+    private static final int MAX_RESULTS = 25;
+    /** Native pre-filter; strict vehicle gate runs in JS before overlay/counting. */
+    private static final float MIN_SCORE = 0.35f;
+    /** Greedy NMS — one box per physical object. */
+    private static final float NMS_IOU = 0.45f;
+    /** ~25 FPS — vehicle filter drops junk before overlay. */
+    private static final long MIN_INTERVAL_MS = 40L;
 
     private static final LeadVehicleFrameAnalyzer INSTANCE = new LeadVehicleFrameAnalyzer();
 
@@ -51,15 +53,15 @@ public final class LeadVehicleFrameAnalyzer {
                         return t;
                     });
     private final AtomicBoolean busy = new AtomicBoolean(false);
-    private final Object interpreterLock = new Object();
-  /** If inference wedges, recover so analysis does not stop permanently. */
+    private final Object detectorLock = new Object();
+    /** If inference wedges, recover so analysis does not stop permanently. */
     private static final long BUSY_WATCHDOG_MS = 2500L;
 
     private volatile long busySinceMs = 0;
     private volatile boolean enabled = false;
     private volatile boolean available = false;
     private volatile String statusDetail = "uninitialized";
-    private Interpreter interpreter;
+    private ObjectDetector objectDetector;
     private ByteBuffer inputBuffer;
     private long lastInferAtMs = 0;
 
@@ -70,23 +72,29 @@ public final class LeadVehicleFrameAnalyzer {
     }
 
     public synchronized void ensureInitialized(Context context) {
-        if (interpreter != null) {
+        if (objectDetector != null) {
             return;
         }
         try {
-            MappedByteBuffer model = loadModelFile(context.getApplicationContext());
-            Interpreter.Options options = new Interpreter.Options();
-            options.setNumThreads(2);
-            interpreter = new Interpreter(model, options);
+            ObjectDetectorOptions options =
+                    ObjectDetectorOptions.builder()
+                            .setBaseOptions(
+                                    BaseOptions.builder().setNumThreads(4).build())
+                            .setMaxResults(MAX_RESULTS)
+                            .setScoreThreshold(MIN_SCORE)
+                            .build();
+            objectDetector =
+                    ObjectDetector.createFromFileAndOptions(
+                            context.getApplicationContext(), MODEL_ASSET, options);
             inputBuffer = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3);
             inputBuffer.order(ByteOrder.nativeOrder());
             available = true;
             statusDetail = "ready";
-            Log.i(TAG, "TFLite model loaded (" + MODEL_ASSET + ")");
+            Log.i(TAG, "EfficientDet-Lite2 loaded (" + MODEL_ASSET + ")");
         } catch (Exception e) {
             available = false;
             statusDetail = e.getMessage() != null ? e.getMessage() : "init_failed";
-            Log.e(TAG, "Failed to load TFLite model", e);
+            Log.e(TAG, "Failed to load object detector", e);
         }
     }
 
@@ -111,7 +119,7 @@ public final class LeadVehicleFrameAnalyzer {
      * Must not block the WebRTC capture path.
      */
     public void maybeAnalyze(VideoFrame frame) {
-        if (!enabled || !available || interpreter == null) {
+        if (!enabled || !available || objectDetector == null) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -189,48 +197,44 @@ public final class LeadVehicleFrameAnalyzer {
             long timestampMs) {
         long t0 = System.currentTimeMillis();
         fillInputFromI420(y, u, v, width, height);
-        float[][][] boxes = new float[1][NUM_DETECTIONS][4];
-        float[][] classes = new float[1][NUM_DETECTIONS];
-        float[][] scores = new float[1][NUM_DETECTIONS];
-        float[] count = new float[1];
 
-        Object[] inputs = {inputBuffer};
-        java.util.Map<Integer, Object> outputs = new java.util.HashMap<>();
-        outputs.put(0, boxes);
-        outputs.put(1, classes);
-        outputs.put(2, scores);
-        outputs.put(3, count);
+        TensorImage tensorImage = new TensorImage(DataType.UINT8);
+        ImageProperties imageProps =
+                ImageProperties.builder()
+                        .setHeight(INPUT_SIZE)
+                        .setWidth(INPUT_SIZE)
+                        .setColorSpaceType(ColorSpaceType.RGB)
+                        .build();
+        tensorImage.load(inputBuffer, imageProps);
 
-        synchronized (interpreterLock) {
-            if (interpreter == null) return;
-            interpreter.runForMultipleInputsOutputs(inputs, outputs);
+        List<Detection> results;
+        synchronized (detectorLock) {
+            if (objectDetector == null) return;
+            results = objectDetector.detect(tensorImage);
         }
+        results = nmsVehicleDetections(results);
 
         long durationMs = System.currentTimeMillis() - t0;
         WritableArray detections = Arguments.createArray();
-        int n = Math.min(NUM_DETECTIONS, Math.max(0, (int) count[0]));
-        for (int i = 0; i < n; i++) {
-            float score = scores[0][i];
-            if (score < MIN_SCORE) continue;
-            int classId = (int) classes[0][i] + 1; // model outputs 0-based class index
-            String vehicleType = mapClass(classId);
-            if (vehicleType == null) continue;
+        for (Detection detection : results) {
+            Category best = bestVehicleCategory(detection.getCategories());
+            if (best == null || best.getScore() < MIN_SCORE) continue;
 
-            // Boxes: [ymin, xmin, ymax, xmax] normalized to the 300×300 input
-            float ymin = clamp01(boxes[0][i][0]);
-            float xmin = clamp01(boxes[0][i][1]);
-            float ymax = clamp01(boxes[0][i][2]);
-            float xmax = clamp01(boxes[0][i][3]);
-            // Input was filled in display orientation (rotation applied), so box is display NDC.
+            RectF box = detection.getBoundingBox();
+            float xmin = normalizeCoord(box.left);
+            float ymin = normalizeCoord(box.top);
+            float xmax = normalizeCoord(box.right);
+            float ymax = normalizeCoord(box.bottom);
+
             WritableMap det = Arguments.createMap();
-            det.putString("vehicleType", vehicleType);
-            det.putDouble("confidence", score);
-            WritableMap box = Arguments.createMap();
-            box.putDouble("x", xmin);
-            box.putDouble("y", ymin);
-            box.putDouble("width", Math.max(0, xmax - xmin));
-            box.putDouble("height", Math.max(0, ymax - ymin));
-            det.putMap("boundingBox", box);
+            det.putString("vehicleType", "vehicle");
+            det.putDouble("confidence", best.getScore());
+            WritableMap boxMap = Arguments.createMap();
+            boxMap.putDouble("x", xmin);
+            boxMap.putDouble("y", ymin);
+            boxMap.putDouble("width", Math.max(0, xmax - xmin));
+            boxMap.putDouble("height", Math.max(0, ymax - ymin));
+            det.putMap("boundingBox", boxMap);
             detections.pushMap(det);
         }
 
@@ -244,48 +248,149 @@ public final class LeadVehicleFrameAnalyzer {
         LeadVehicleEmitter.emit("LeadVehicleDetections", payload);
     }
 
-    private static String mapClass(int cocoLabelIndex) {
-        switch (cocoLabelIndex) {
-            case CLASS_CAR:
-                return "car";
-            case CLASS_MOTORCYCLE:
-                return "motorcycle";
-            case CLASS_BUS:
-                return "bus";
-            case CLASS_TRUCK:
-                return "truck";
-            case CLASS_BICYCLE:
-                return "bicycle";
+    private static List<Detection> nmsVehicleDetections(List<Detection> detections) {
+        java.util.ArrayList<Detection> vehicles = new java.util.ArrayList<>();
+        for (Detection detection : detections) {
+            if (bestVehicleCategory(detection.getCategories()) != null) {
+                vehicles.add(detection);
+            }
+        }
+        vehicles.sort(
+                (a, b) ->
+                        Float.compare(
+                                bestVehicleCategory(b.getCategories()).getScore(),
+                                bestVehicleCategory(a.getCategories()).getScore()));
+        java.util.ArrayList<Detection> kept = new java.util.ArrayList<>();
+        for (Detection candidate : vehicles) {
+            RectF cBox = candidate.getBoundingBox();
+            boolean overlaps = false;
+            for (Detection keptDet : kept) {
+                if (iou(cBox, keptDet.getBoundingBox()) > NMS_IOU) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) kept.add(candidate);
+        }
+        return kept;
+    }
+
+    private static float iou(RectF a, RectF b) {
+        float ix1 = Math.max(a.left, b.left);
+        float iy1 = Math.max(a.top, b.top);
+        float ix2 = Math.min(a.right, b.right);
+        float iy2 = Math.min(a.bottom, b.bottom);
+        float iw = Math.max(0f, ix2 - ix1);
+        float ih = Math.max(0f, iy2 - iy1);
+        float inter = iw * ih;
+        float areaA = Math.max(0f, a.right - a.left) * Math.max(0f, a.bottom - a.top);
+        float areaB = Math.max(0f, b.right - b.left) * Math.max(0f, b.bottom - b.top);
+        float union = areaA + areaB - inter;
+        if (union <= 0f) return 0f;
+        return inter / union;
+    }
+
+    private static Category bestVehicleCategory(List<Category> categories) {
+        Category best = null;
+        for (Category category : categories) {
+            if (mapLabel(category.getLabel()) == null) continue;
+            if (best == null || category.getScore() > best.getScore()) {
+                best = category;
+            }
+        }
+        return best;
+    }
+
+    private static String mapLabel(String label) {
+        if (label == null) return null;
+        switch (label.toLowerCase()) {
+            case "car":
+            case "motorcycle":
+            case "bus":
+            case "truck":
+            case "bicycle":
+                return "vehicle";
             default:
                 return null;
         }
+    }
+
+    private static float normalizeCoord(float value) {
+        if (value > 1f) {
+            value /= INPUT_SIZE;
+        }
+        return clamp01(value);
     }
 
     private void fillInputFromI420(
             ByteBuffer yPlane, ByteBuffer uPlane, ByteBuffer vPlane, int width, int height) {
         inputBuffer.rewind();
         for (int dy = 0; dy < INPUT_SIZE; dy++) {
-            int sy = dy * height / INPUT_SIZE;
+            float sy = (dy + 0.5f) * height / INPUT_SIZE - 0.5f;
+            int y0 = Math.max(0, (int) Math.floor(sy));
+            int y1 = Math.min(height - 1, y0 + 1);
+            float wy = sy - y0;
             for (int dx = 0; dx < INPUT_SIZE; dx++) {
-                int sx = dx * width / INPUT_SIZE;
-                int yIndex = sy * width + sx;
-                int uvIndex = (sy / 2) * ((width + 1) / 2) + (sx / 2);
-                int y = yPlane.get(yIndex) & 0xff;
-                int u = uPlane.get(uvIndex) & 0xff;
-                int v = vPlane.get(uvIndex) & 0xff;
-                // BT.601 full-range-ish YUV → RGB
-                int c = y - 16;
-                int d = u - 128;
-                int e = v - 128;
-                int r = clampByte((298 * c + 409 * e + 128) >> 8);
-                int g = clampByte((298 * c - 100 * d - 208 * e + 128) >> 8);
-                int b = clampByte((298 * c + 516 * d + 128) >> 8);
+                float sx = (dx + 0.5f) * width / INPUT_SIZE - 0.5f;
+                int x0 = Math.max(0, (int) Math.floor(sx));
+                int x1 = Math.min(width - 1, x0 + 1);
+                float wx = sx - x0;
+
+                int r = sampleRgbChannel(yPlane, uPlane, vPlane, width, height, x0, y0, x1, y1, wx, wy, 0);
+                int g = sampleRgbChannel(yPlane, uPlane, vPlane, width, height, x0, y0, x1, y1, wx, wy, 1);
+                int b = sampleRgbChannel(yPlane, uPlane, vPlane, width, height, x0, y0, x1, y1, wx, wy, 2);
                 inputBuffer.put((byte) r);
                 inputBuffer.put((byte) g);
                 inputBuffer.put((byte) b);
             }
         }
         inputBuffer.rewind();
+    }
+
+    private static int sampleRgbChannel(
+            ByteBuffer yPlane,
+            ByteBuffer uPlane,
+            ByteBuffer vPlane,
+            int width,
+            int height,
+            int x0,
+            int y0,
+            int x1,
+            int y1,
+            float wx,
+            float wy,
+            int channel) {
+        float c00 = yuvToRgbChannel(yPlane, uPlane, vPlane, width, x0, y0, channel);
+        float c10 = yuvToRgbChannel(yPlane, uPlane, vPlane, width, x1, y0, channel);
+        float c01 = yuvToRgbChannel(yPlane, uPlane, vPlane, width, x0, y1, channel);
+        float c11 = yuvToRgbChannel(yPlane, uPlane, vPlane, width, x1, y1, channel);
+        float top = c00 * (1f - wx) + c10 * wx;
+        float bottom = c01 * (1f - wx) + c11 * wx;
+        return clampByte(Math.round(top * (1f - wy) + bottom * wy));
+    }
+
+    private static float yuvToRgbChannel(
+            ByteBuffer yPlane,
+            ByteBuffer uPlane,
+            ByteBuffer vPlane,
+            int width,
+            int x,
+            int y,
+            int channel) {
+        int yIndex = y * width + x;
+        int uvIndex = (y / 2) * ((width + 1) / 2) + (x / 2);
+        int yv = yPlane.get(yIndex) & 0xff;
+        int u = uPlane.get(uvIndex) & 0xff;
+        int v = vPlane.get(uvIndex) & 0xff;
+        int c = yv - 16;
+        int d = u - 128;
+        int e = v - 128;
+        int r = (298 * c + 409 * e + 128) >> 8;
+        int g = (298 * c - 100 * d - 208 * e + 128) >> 8;
+        int b = (298 * c + 516 * d + 128) >> 8;
+        if (channel == 0) return r;
+        if (channel == 1) return g;
+        return b;
     }
 
     private static ByteBuffer copyPlane(ByteBuffer src, int stride, int width, int height) {
@@ -298,19 +403,6 @@ public final class LeadVehicleFrameAnalyzer {
         }
         out.rewind();
         return out;
-    }
-
-    private static MappedByteBuffer loadModelFile(Context context) throws IOException {
-        AssetFileDescriptor fd = context.getAssets().openFd(MODEL_ASSET);
-        FileInputStream inputStream = new FileInputStream(fd.getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        long startOffset = fd.getStartOffset();
-        long declaredLength = fd.getDeclaredLength();
-        MappedByteBuffer mapped =
-                fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
-        inputStream.close();
-        fd.close();
-        return mapped;
     }
 
     private static float clamp01(float v) {
@@ -327,10 +419,10 @@ public final class LeadVehicleFrameAnalyzer {
 
     public synchronized void dispose() {
         enabled = false;
-        synchronized (interpreterLock) {
-            if (interpreter != null) {
-                interpreter.close();
-                interpreter = null;
+        synchronized (detectorLock) {
+            if (objectDetector != null) {
+                objectDetector.close();
+                objectDetector = null;
             }
         }
         available = false;

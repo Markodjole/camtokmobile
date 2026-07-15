@@ -3,17 +3,12 @@
  * Temporary session-level IDs only — never permanent vehicle identity.
  */
 
-export type SupportedVehicleType =
-  | "car"
-  | "motorcycle"
-  | "bus"
-  | "truck"
-  | "bicycle"
-  | "unknown_vehicle";
+/** We only distinguish vehicle vs non-vehicle — not car vs truck vs bike. */
+export type SupportedVehicleType = "vehicle" | "unknown_vehicle";
 
 export type VehicleTrackId = string;
 
-export type InferenceMode = "on_device" | "remote" | "mock";
+export type InferenceMode = "on_device" | "remote" | "hybrid" | "mock";
 
 export type VehicleInferenceStatus =
   | "uninitialized"
@@ -65,6 +60,9 @@ export interface VehicleFrameResult {
   timestampMs: number;
   inferenceDurationMs: number;
   detections: VehicleDetection[];
+  frameWidth?: number;
+  frameHeight?: number;
+  rotationDegrees?: number;
 }
 
 export interface VehicleTrackPoint {
@@ -267,7 +265,8 @@ export interface LeadVehicleTelemetryEvent {
     | "lead_vehicle_updated"
     | "lead_vehicle_state_changed"
     | "lead_vehicle_changed"
-    | "lead_vehicle_lost";
+    | "lead_vehicle_lost"
+    | "vehicle_count_round";
   rideId: string;
   riderId: string;
   sessionId: string;
@@ -297,6 +296,12 @@ export interface LeadVehicleTelemetryEvent {
       vehiclesOnScreen?: number;
       /** Session total of vehicles passed (grew then lost). */
       vehiclesPassed?: number;
+      /** Rush Hour–style count round id. */
+      roundId?: string;
+      /** Authoritative count for the active/finished round. */
+      roundCount?: number;
+      roundCounting?: boolean;
+      roundFinal?: boolean;
       lastPass?: {
         trackId: string;
         vehicleType?: SupportedVehicleType | string;

@@ -6,9 +6,12 @@ const {
   createRunOncePlugin,
 } = require("expo/config-plugins");
 
+const MODEL_FILE = "efficientdet_lite2.tflite";
+
 const TFLITE_DEPS = `
-    // Lead-vehicle on-device detection (COCO SSD MobileNet)
+    // Lead-vehicle on-device detection (EfficientDet-Lite2 via Task Vision)
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
 `;
 
 function copyDir(src, dest) {
@@ -25,10 +28,7 @@ function copyDir(src, dest) {
 }
 
 function ensureModelDownloaded(projectRoot) {
-  const modelPath = path.join(
-    projectRoot,
-    "assets/models/coco_ssd_mobilenet_v1.tflite",
-  );
+  const modelPath = path.join(projectRoot, "assets/models", MODEL_FILE);
   if (fs.existsSync(modelPath)) return modelPath;
   // Try running download script synchronously via child_process if missing.
   try {
@@ -98,7 +98,7 @@ function withLeadVehicleAndroidSources(config) {
         fs.mkdirSync(assetsDir, { recursive: true });
         fs.copyFileSync(
           modelSrc,
-          path.join(assetsDir, "coco_ssd_mobilenet_v1.tflite"),
+          path.join(assetsDir, MODEL_FILE),
         );
       }
 
@@ -118,7 +118,7 @@ function withLeadVehicleAndroidSources(config) {
 
 function withLeadVehicleGradle(config) {
   return withAppBuildGradle(config, (cfg) => {
-    if (cfg.modResults.contents.includes("tensorflow-lite")) {
+    if (cfg.modResults.contents.includes("tensorflow-lite-task-vision")) {
       return cfg;
     }
     cfg.modResults.contents = cfg.modResults.contents.replace(
@@ -145,7 +145,7 @@ function withLeadVehicleIos(config) {
         fs.mkdirSync(modelsDir, { recursive: true });
         fs.copyFileSync(
           modelSrc,
-          path.join(modelsDir, "coco_ssd_mobilenet_v1.tflite"),
+          path.join(modelsDir, MODEL_FILE),
         );
       }
 
@@ -184,7 +184,7 @@ function withLeadVehicleIos(config) {
       if (modelSrc) {
         try {
           addResourceFileToGroup({
-            filepath: "LeadVehicleModels/coco_ssd_mobilenet_v1.tflite",
+            filepath: `LeadVehicleModels/${MODEL_FILE}`,
             groupName: projectName,
             project,
             isMediaFile: true,

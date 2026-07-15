@@ -49,6 +49,8 @@ import {
 } from "@/lib/drivingRouteStyle";
 import {
   useLeadVehicleTracking,
+  useVehicleCountRound,
+  vehicleCountRoundEnabled,
 } from "@/features/leadVehicle";
 import { useAuth } from "@/providers/AuthProvider";
 
@@ -94,8 +96,29 @@ export default function RoomScreen() {
   const isRider = isDriverMode || isOwnLiveSession;
 
   const { user } = useAuth();
+  const countRoundOn = vehicleCountRoundEnabled();
+  const currentMarket = room.data?.currentMarket ?? null;
+  const countRoundMarket =
+    currentMarket?.marketType === "vehicle_count_30s"
+      ? {
+          marketId: currentMarket.id,
+          marketType: currentMarket.marketType,
+          roomPhase: room.data?.phase ?? null,
+          locksAt: currentMarket.locksAt,
+          revealAt: currentMarket.revealAt,
+        }
+      : null;
+
+  useVehicleCountRound({
+    enabled: countRoundOn && isRider && !!effectiveSessionId,
+    rideId: roomId,
+    sessionId: effectiveSessionId ?? undefined,
+    riderId: user?.id,
+    market: countRoundMarket,
+  });
+
   useLeadVehicleTracking({
-    enabled: isRider && !!effectiveSessionId,
+    enabled: !countRoundOn && isRider && !!effectiveSessionId,
     rideId: roomId,
     sessionId: effectiveSessionId ?? undefined,
     riderId: user?.id,
@@ -161,7 +184,7 @@ export default function RoomScreen() {
 
     const start = async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (cancelled || status !== "granted") return;
 
         try {
@@ -226,7 +249,6 @@ export default function RoomScreen() {
     };
   }, [isOwnLiveSession]);
 
-  const currentMarket = room.data?.currentMarket ?? null;
   const timeLocked = currentMarket
     ? Date.parse(currentMarket.locksAt) <= Date.now()
     : true;
@@ -500,7 +522,7 @@ export default function RoomScreen() {
     setMapResetKey((k) => k + 1);
     if (isOwnLiveSession) {
       void (async () => {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== "granted") return;
         try {
           const pos = await Location.getCurrentPositionAsync({

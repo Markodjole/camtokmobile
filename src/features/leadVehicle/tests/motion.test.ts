@@ -5,7 +5,7 @@ import type { TrackedVehicle } from "../domain/leadVehicle.types";
 function base(traj: TrackedVehicle["trajectory"]): TrackedVehicle {
   return {
     trackId: "vehicle_1",
-    vehicleType: "car",
+    vehicleType: "vehicle",
     classConfidence: 0.8,
     trackingConfidence: 0.8,
     boundingBox: { x: 0.4, y: 0.4, width: 0.15, height: 0.18 },

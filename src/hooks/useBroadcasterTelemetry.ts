@@ -115,7 +115,7 @@ export function useBroadcasterTelemetry(params: {
     }
 
     async function start() {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.getForegroundPermissionsAsync();
       if (cancelled) return;
       const granted = status === "granted";
       setStorePermission(granted);
