@@ -109,6 +109,38 @@ export class HybridVehicleInferenceEngine implements VehicleInferenceEngine {
     return this.status;
   }
 
+  /**
+   * The JPEG sent to the server is the native 320×320 letterboxed model input
+   * (aspect-preserved with gray padding). Server boxes come back normalized to
+   * that padded image, so map them back into 0-1 frame space to align with the
+   * on-device boxes and the viewer's full-frame video.
+   */
+  private unletterboxRemote(
+    dets: VehicleFrameResult["detections"],
+  ): VehicleFrameResult["detections"] {
+    const w = this.lastFrameMeta.width;
+    const h = this.lastFrameMeta.height;
+    if (!w || !h) return dets;
+    const INPUT = 320;
+    const scale = Math.min(INPUT / w, INPUT / h);
+    const scaledW = w * scale;
+    const scaledH = h * scale;
+    const padX = (INPUT - scaledW) / 2;
+    const padY = (INPUT - scaledH) / 2;
+    const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    return dets.map((d) => {
+      const b = d.boundingBox;
+      const x0 = clamp01((b.x * INPUT - padX) / scaledW);
+      const y0 = clamp01((b.y * INPUT - padY) / scaledH);
+      const x1 = clamp01(((b.x + b.width) * INPUT - padX) / scaledW);
+      const y1 = clamp01(((b.y + b.height) * INPUT - padY) / scaledH);
+      return {
+        ...d,
+        boundingBox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+      };
+    });
+  }
+
   private freshRemoteDetections(): VehicleFrameResult["detections"] {
     if (this.lastRemoteDetections.length === 0) return [];
     if (Date.now() - this.lastRemoteAtMs > HYBRID_REMOTE_CACHE_MS) return [];
@@ -153,7 +185,7 @@ export class HybridVehicleInferenceEngine implements VehicleInferenceEngine {
       });
       if (!result) return;
       if (result.detections.length > 0) {
-        this.lastRemoteDetections = result.detections;
+        this.lastRemoteDetections = this.unletterboxRemote(result.detections);
         this.lastRemoteAtMs = Date.now();
       }
       if (typeof result.roundCount === "number") {

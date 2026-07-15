@@ -73,6 +73,11 @@ public final class LeadVehicleFrameAnalyzer {
     private ByteBuffer inputBuffer;
     private long lastInferAtMs = 0;
     private long lastJpegAtMs = 0;
+    // Letterbox transform from the last frame (input-space → 0-1 frame space).
+    private float lbScaledW = INPUT_SIZE;
+    private float lbScaledH = INPUT_SIZE;
+    private float lbPadX = 0f;
+    private float lbPadY = 0f;
 
     private LeadVehicleFrameAnalyzer() {}
 
@@ -241,10 +246,11 @@ public final class LeadVehicleFrameAnalyzer {
             if (best == null || best.getScore() < MIN_SCORE) continue;
 
             RectF box = detection.getBoundingBox();
-            float xmin = normalizeCoord(box.left);
-            float ymin = normalizeCoord(box.top);
-            float xmax = normalizeCoord(box.right);
-            float ymax = normalizeCoord(box.bottom);
+            // Remap 320-space box back through the letterbox into 0-1 frame space.
+            float xmin = clamp01((box.left - lbPadX) / lbScaledW);
+            float ymin = clamp01((box.top - lbPadY) / lbScaledH);
+            float xmax = clamp01((box.right - lbPadX) / lbScaledW);
+            float ymax = clamp01((box.bottom - lbPadY) / lbScaledH);
 
             WritableMap det = Arguments.createMap();
             det.putString("vehicleType", "vehicle");
@@ -364,23 +370,35 @@ public final class LeadVehicleFrameAnalyzer {
         }
     }
 
-    private static float normalizeCoord(float value) {
-        if (value > 1f) {
-            value /= INPUT_SIZE;
-        }
-        return clamp01(value);
-    }
-
+    /**
+     * Letterbox the frame into INPUT_SIZE×INPUT_SIZE preserving aspect ratio, so
+     * vehicles are not distorted (a full portrait frame stretched into a square
+     * squashes cars and wrecks detection). Padding is neutral gray. The scale +
+     * pad are stored so runInference can map boxes back to 0-1 frame space.
+     */
     private void fillInputFromI420(
             ByteBuffer yPlane, ByteBuffer uPlane, ByteBuffer vPlane, int width, int height) {
+        final float scale = Math.min((float) INPUT_SIZE / width, (float) INPUT_SIZE / height);
+        lbScaledW = width * scale;
+        lbScaledH = height * scale;
+        lbPadX = (INPUT_SIZE - lbScaledW) / 2f;
+        lbPadY = (INPUT_SIZE - lbScaledH) / 2f;
+
         inputBuffer.rewind();
         for (int dy = 0; dy < INPUT_SIZE; dy++) {
-            float sy = (dy + 0.5f) * height / INPUT_SIZE - 0.5f;
+            float sy = (dy + 0.5f - lbPadY) / scale - 0.5f;
+            boolean rowInside = sy >= -0.5f && sy <= height - 0.5f;
             int y0 = Math.max(0, (int) Math.floor(sy));
             int y1 = Math.min(height - 1, y0 + 1);
             float wy = sy - y0;
             for (int dx = 0; dx < INPUT_SIZE; dx++) {
-                float sx = (dx + 0.5f) * width / INPUT_SIZE - 0.5f;
+                float sx = (dx + 0.5f - lbPadX) / scale - 0.5f;
+                if (!rowInside || sx < -0.5f || sx > width - 0.5f) {
+                    inputBuffer.put((byte) 114);
+                    inputBuffer.put((byte) 114);
+                    inputBuffer.put((byte) 114);
+                    continue;
+                }
                 int x0 = Math.max(0, (int) Math.floor(sx));
                 int x1 = Math.min(width - 1, x0 + 1);
                 float wx = sx - x0;

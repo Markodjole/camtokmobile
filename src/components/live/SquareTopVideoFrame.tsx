@@ -1,8 +1,8 @@
 import React from "react";
 import { View, type ViewStyle } from "react-native";
 
-/** Fraction of frame height kept (top); bottom 60% is cut when this is 0.4. */
-export const STREAM_TOP_VISIBLE_FRACTION = 0.4;
+/** Fraction of frame height kept (top). 1.0 = full frame streamed (no crop). */
+export const STREAM_TOP_VISIBLE_FRACTION = 1.0;
 
 /** Typical portrait width/height before crop (9:16). */
 export const PORTRAIT_FRAME_ASPECT = 9 / 16;
