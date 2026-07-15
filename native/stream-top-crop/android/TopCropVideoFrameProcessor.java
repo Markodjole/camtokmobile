@@ -12,8 +12,8 @@ import org.webrtc.VideoFrame;
  * height would trim the wide horizontal FOV, so we crop the buffer axis that maps
  * to display height instead.
  *
- * When lead-vehicle detection is enabled, runs TFLite on the cropped outgoing frame
- * off-thread (never opens a second camera).
+ * When lead-vehicle detection is enabled, analyzes the full incoming frame on a
+ * road band (horizon → near field) off-thread. The outgoing stream stays top-cropped.
  */
 public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
     private static final float TOP_FRACTION = 0.4f;
@@ -26,6 +26,9 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
         if (width <= 0 || height <= 0) {
             return frame;
         }
+
+        // Analyze full frame (road band inside analyzer) — not the stream crop.
+        LeadVehicleFrameAnalyzer.getInstance().maybeAnalyze(frame);
 
         final int rotation = frame.getRotation();
         final int offsetX;
@@ -63,7 +66,6 @@ public class TopCropVideoFrameProcessor implements VideoFrameProcessor {
         VideoFrame.Buffer cropped = buffer.cropAndScale(
                 offsetX, offsetY, cropWidth, cropHeight, outWidth, outHeight);
         VideoFrame out = new VideoFrame(cropped, rotation, frame.getTimestampNs());
-        LeadVehicleFrameAnalyzer.getInstance().maybeAnalyze(out);
         return out;
     }
 }

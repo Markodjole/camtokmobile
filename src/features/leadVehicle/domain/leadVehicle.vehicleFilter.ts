@@ -5,7 +5,7 @@ import type {
 } from "./leadVehicle.types";
 
 /** Per-detection minimum score after native inference. */
-export const VEHICLE_MIN_CONFIDENCE = 0.46;
+export const VEHICLE_MIN_CONFIDENCE = 0.42;
 
 /** Reject tiny far noise and full-frame road blobs. */
 export const VEHICLE_MIN_AREA = 0.008;

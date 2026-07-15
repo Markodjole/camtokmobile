@@ -1,11 +1,15 @@
 import { boxBottomCenter, boxCenter, iou } from "./leadVehicle.geometry";
 import { isLikelyVehicleDetection } from "./leadVehicle.vehicleFilter";
 import {
+  ROUND_HIGH_CONFIDENCE,
   ROUND_MIN_CONFIDENCE,
   ROUND_MIN_HITS,
+  ROUND_MIN_HITS_LOW_CONF,
   ROUND_TRACK_MATCH_IOU,
   ROUND_TRACK_MAX_MISSES,
   VEHICLE_COUNT_LINE_Y,
+  VEHICLE_COUNT_ZONE_BOTTOM,
+  VEHICLE_COUNT_ZONE_TOP,
 } from "./vehicleCountRound.constants";
 import type { NormalizedBoundingBox, VehicleDetection } from "./leadVehicle.types";
 
@@ -23,15 +27,26 @@ type RoundTrack = {
   lastCenterY: number;
   wasAboveLine: boolean;
   crossed: boolean;
+  inZone: boolean;
   peakConfidence: number;
   lastBox: NormalizedBoundingBox;
 };
 
 let nextRoundTrackId = 1;
 
+function minHitsFor(confidence: number): number {
+  return confidence >= ROUND_HIGH_CONFIDENCE
+    ? ROUND_MIN_HITS
+    : ROUND_MIN_HITS_LOW_CONF;
+}
+
+function centerInCountZone(centerY: number): boolean {
+  return centerY >= VEHICLE_COUNT_ZONE_TOP && centerY <= VEHICLE_COUNT_ZONE_BOTTOM;
+}
+
 /**
- * Rush Hour–style counter: unique vehicles crossing the count line once per round.
- * More reliable than continuous lead tracking for timed betting windows.
+ * Rush Hour–style counter: unique vehicles in the counting zone once per round.
+ * Tolerates bike-camera motion better than strict downward line-cross only.
  */
 export class VehicleCountRoundCounter {
   private roundId: string | null = null;
@@ -116,6 +131,7 @@ export class VehicleCountRoundCounter {
         lastCenterY: center.y,
         wasAboveLine: center.y < VEHICLE_COUNT_LINE_Y,
         crossed: false,
+        inZone: centerInCountZone(center.y),
         peakConfidence: det.confidence,
         lastBox: det.boundingBox,
       });
@@ -141,18 +157,14 @@ export class VehicleCountRoundCounter {
     track.misses = 0;
     track.peakConfidence = Math.max(track.peakConfidence, det.confidence);
     track.lastBox = det.boundingBox;
+    track.inZone = centerInCountZone(center.y);
 
     const aboveNow = bottom.y < VEHICLE_COUNT_LINE_Y;
     if (track.wasAboveLine && !aboveNow && bottom.y >= VEHICLE_COUNT_LINE_Y) {
       this.tryCount(track);
     }
 
-    // Vehicle spawned below the line (already in zone when round started).
-    if (
-      !track.crossed &&
-      track.hits >= ROUND_MIN_HITS &&
-      center.y >= VEHICLE_COUNT_LINE_Y - 0.04
-    ) {
+    if (!track.crossed && track.inZone) {
       this.tryCount(track);
     }
 
@@ -162,8 +174,9 @@ export class VehicleCountRoundCounter {
 
   private tryCount(track: RoundTrack): void {
     if (track.crossed || this.countedIds.has(track.id)) return;
-    if (track.hits < ROUND_MIN_HITS) return;
+    if (track.hits < minHitsFor(track.peakConfidence)) return;
     if (track.peakConfidence < ROUND_MIN_CONFIDENCE) return;
+    if (!track.inZone && track.hits < ROUND_MIN_HITS_LOW_CONF) return;
     track.crossed = true;
     this.countedIds.add(track.id);
     this.count += 1;

@@ -11,6 +11,7 @@ export type NativeDetectionPayload = {
   frameWidth?: number;
   frameHeight?: number;
   rotationDegrees?: number;
+  imageBase64?: string;
   detections: Array<{
     vehicleType: string;
     confidence: number;
@@ -43,6 +44,7 @@ export function mapNativeDetections(
     frameWidth: payload.frameWidth,
     frameHeight: payload.frameHeight,
     rotationDegrees: payload.rotationDegrees,
+    imageBase64: payload.imageBase64,
     detections,
   };
 }

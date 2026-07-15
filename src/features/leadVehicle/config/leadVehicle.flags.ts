@@ -59,3 +59,18 @@ export function vehicleCountRoundEnabled(): boolean {
   if (raw === "0" || raw === "false") return false;
   return true;
 }
+
+/** Count rounds use hybrid (on-device + server) by default for higher precision. */
+export function vehicleCountRoundInferenceMode(): InferenceMode {
+  const raw = process.env.EXPO_PUBLIC_VEHICLE_COUNT_ROUND_MODE;
+  if (
+    raw === "on_device" ||
+    raw === "remote" ||
+    raw === "hybrid" ||
+    raw === "mock"
+  ) {
+    return raw;
+  }
+  if (leadVehicleRemoteInferenceEnabled()) return "hybrid";
+  return "hybrid";
+}

@@ -63,6 +63,9 @@ export interface VehicleFrameResult {
   frameWidth?: number;
   frameHeight?: number;
   rotationDegrees?: number;
+  imageBase64?: string;
+  /** Authoritative count from server infer when hybrid/remote is active. */
+  serverRoundCount?: number;
 }
 
 export interface VehicleTrackPoint {

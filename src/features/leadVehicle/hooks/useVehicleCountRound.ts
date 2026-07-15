@@ -4,6 +4,7 @@ import {
   leadVehicleTelemetryEnabled,
   leadVehicleTrackingEnabled,
   vehicleCountRoundEnabled,
+  vehicleCountRoundInferenceMode,
 } from "../config/leadVehicle.flags";
 import type { InferenceMode } from "../domain/leadVehicle.types";
 import { VehicleCountRoundPipeline } from "../services/VehicleCountRoundPipeline";
@@ -36,7 +37,7 @@ export function useVehicleCountRound(options: UseVehicleCountRoundOptions) {
         rideId: options.rideId ?? "ride",
         sessionId: options.sessionId ?? "",
         riderId: options.riderId ?? "unknown",
-        inferenceMode: options.inferenceMode ?? leadVehicleInferenceMode(),
+        inferenceMode: options.inferenceMode ?? vehicleCountRoundInferenceMode(),
         telemetryEnabled: false,
       }).getSnapshot(),
   );
@@ -63,7 +64,7 @@ export function useVehicleCountRound(options: UseVehicleCountRoundOptions) {
       rideId: options.rideId,
       sessionId: options.sessionId,
       riderId: options.riderId ?? "unknown",
-      inferenceMode: options.inferenceMode ?? leadVehicleInferenceMode(),
+      inferenceMode: options.inferenceMode ?? vehicleCountRoundInferenceMode(),
       telemetryEnabled: leadVehicleTelemetryEnabled(),
     });
     pipelineRef.current = pipeline;

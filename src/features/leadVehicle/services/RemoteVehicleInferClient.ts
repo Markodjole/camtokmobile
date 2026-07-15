@@ -6,6 +6,7 @@ export type RemoteInferRequest = {
   frameWidth?: number;
   frameHeight?: number;
   rotationDegrees?: number;
+  roundId?: string;
   /** Optional downscaled JPEG — server can also analyze ingested stream later. */
   imageBase64?: string;
 };
@@ -22,6 +23,7 @@ type RemoteInferResponseBody = {
     };
   }>;
   inferenceDurationMs?: number;
+  roundCount?: number;
 };
 
 /**
@@ -33,7 +35,11 @@ export class RemoteVehicleInferClient {
 
   async infer(
     request: RemoteInferRequest,
-  ): Promise<{ detections: VehicleDetection[]; inferenceDurationMs: number } | null> {
+  ): Promise<{
+    detections: VehicleDetection[];
+    inferenceDurationMs: number;
+    roundCount?: number;
+  } | null> {
     try {
       const { apiFetch } = await import("@/lib/api");
       const body = await apiFetch<RemoteInferResponseBody>(
@@ -56,6 +62,8 @@ export class RemoteVehicleInferClient {
       return {
         detections: normalizeVehicleDetections(raw),
         inferenceDurationMs: body.inferenceDurationMs ?? 0,
+        roundCount:
+          typeof body.roundCount === "number" ? body.roundCount : undefined,
       };
     } catch {
       return null;

@@ -9,7 +9,10 @@ import {
   VehicleCountRoundCounter,
   type VehicleCountRoundSnapshot,
 } from "../domain/vehicleCountRound.counter";
-import { VEHICLE_COUNT_LINE_Y } from "../domain/vehicleCountRound.constants";
+import {
+  SERVER_COUNT_STALE_MS,
+  VEHICLE_COUNT_LINE_Y,
+} from "../domain/vehicleCountRound.constants";
 import type {
   ForwardCorridor,
   InferenceMode,
@@ -22,6 +25,7 @@ import {
   createVehicleInferenceEngine,
   engineSupportsPushFrames,
 } from "./createVehicleInferenceEngine";
+import { HybridVehicleInferenceEngine } from "./HybridVehicleInferenceEngine";
 import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
 import { LeadVehicleTelemetryClient } from "./LeadVehicleTelemetryClient";
 import type { LeadVehicleOverlayDetection } from "./LeadVehicleTelemetryClient";
@@ -79,6 +83,9 @@ export class VehicleCountRoundPipeline {
   private overlayTimer: ReturnType<typeof setInterval> | null = null;
   private lastOverlayMs = 0;
   private frameId = 0;
+  private lastServerRoundCount: number | null = null;
+  private lastServerRoundCountAtMs = 0;
+  private activeRoundId: string | null = null;
 
   constructor(opts: VehicleCountRoundPipelineOptions) {
     this.opts = opts;
@@ -113,6 +120,12 @@ export class VehicleCountRoundPipeline {
       if (!this.engineStarted) {
         await this.ensureEngine();
       }
+      this.activeRoundId = roundId;
+      this.lastServerRoundCount = null;
+      this.lastServerRoundCountAtMs = 0;
+      if (this.engine instanceof HybridVehicleInferenceEngine) {
+        this.engine.setRoundId(roundId);
+      }
       this.roundCounter.beginRound(roundId);
       this.counting = true;
       await this.setNativeEnabled(true);
@@ -121,10 +134,19 @@ export class VehicleCountRoundPipeline {
       }
       this.startOverlayPump();
     } else {
+      const wasCounting = this.counting;
+      const finalRound = this.lastRound;
       this.counting = false;
       this.roundCounter.endRound();
       await this.setNativeEnabled(false);
       this.stopMockPump();
+      if (this.engine instanceof HybridVehicleInferenceEngine) {
+        this.engine.setRoundId(null);
+      }
+      if (wasCounting && finalRound.roundId) {
+        await this.pushRoundTelemetry(Date.now(), true);
+      }
+      this.activeRoundId = null;
     }
     this.notify();
   }
@@ -149,14 +171,20 @@ export class VehicleCountRoundPipeline {
         if (this.inferenceDurations.length > 30) this.inferenceDurations.shift();
         this.inferenceTimes.push(result.timestampMs);
         if (this.inferenceTimes.length > 30) this.inferenceTimes.shift();
-        void this.applyDetections(result.detections, result.timestampMs).catch(
-          (e) => {
-            console.warn(
-              "[vehicleCountRound] applyDetections failed",
-              e instanceof Error ? e.message : e,
-            );
-          },
-        );
+        if (typeof result.serverRoundCount === "number") {
+          this.lastServerRoundCount = result.serverRoundCount;
+          this.lastServerRoundCountAtMs = Date.now();
+        }
+        void this.applyDetections(
+          result.detections,
+          result.timestampMs,
+          result.serverRoundCount,
+        ).catch((e) => {
+          console.warn(
+            "[vehicleCountRound] applyDetections failed",
+            e instanceof Error ? e.message : e,
+          );
+        });
       });
     }
     this.engineStarted = true;
@@ -191,6 +219,7 @@ export class VehicleCountRoundPipeline {
   private async applyDetections(
     detections: VehicleDetection[],
     timestampMs: number,
+    serverRoundCount?: number,
   ): Promise<void> {
     if (!this.counting) return;
     const vehicles = filterVehicleDetections(
@@ -198,6 +227,14 @@ export class VehicleCountRoundPipeline {
     );
     this.lastDetections = vehicles;
     this.lastRound = this.roundCounter.observeDetections(vehicles, timestampMs);
+    if (typeof serverRoundCount === "number") {
+      this.lastServerRoundCount = serverRoundCount;
+      this.lastServerRoundCountAtMs = Date.now();
+    }
+    this.lastRound = {
+      ...this.lastRound,
+      count: this.effectiveCount(this.lastRound.count),
+    };
     this.notify();
 
     const nowWall = Date.now();
@@ -207,15 +244,28 @@ export class VehicleCountRoundPipeline {
     }
   }
 
-  private async pushRoundTelemetry(timestampMs: number): Promise<void> {
+  private effectiveCount(localCount: number): number {
+    if (this.lastServerRoundCount == null) return localCount;
+    if (Date.now() - this.lastServerRoundCountAtMs > SERVER_COUNT_STALE_MS) {
+      return localCount;
+    }
+    return Math.max(localCount, this.lastServerRoundCount);
+  }
+
+  private async pushRoundTelemetry(
+    timestampMs: number,
+    final = false,
+  ): Promise<void> {
+    const count = this.effectiveCount(this.lastRound.count);
     await this.telemetry.publishRoundCount({
       rideId: this.opts.rideId,
       sessionId: this.opts.sessionId,
       timestampMs,
       roundId: this.lastRound.roundId,
-      roundCount: this.lastRound.count,
+      roundCount: count,
       vehiclesOnScreen: this.lastRound.vehiclesOnScreen,
-      counting: this.lastRound.counting,
+      counting: final ? false : this.lastRound.counting,
+      final,
       detections: this.buildOverlayDetections(),
     });
   }
