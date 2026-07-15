@@ -11,35 +11,46 @@ function det(y: number, h: number, conf = 0.72): VehicleDetection {
 }
 
 describe("VehicleCountRoundCounter", () => {
-  it("counts a stable vehicle in the counting zone once per round", () => {
+  it("counts a vehicle crossing the line downward once per round", () => {
     const c = new VehicleCountRoundCounter();
     c.beginRound("r1");
 
-    let snap = c.observeDetections([det(0.42, 0.14)], 0);
+    // Approaching from above the line, growing as it nears the camera.
+    let snap = c.observeDetections([det(0.3, 0.1)], 0);
     expect(snap.count).toBe(0);
-
-    snap = c.observeDetections([det(0.42, 0.14)], 100);
+    snap = c.observeDetections([det(0.36, 0.12)], 100);
+    snap = c.observeDetections([det(0.42, 0.14)], 200);
+    // bottom = y+h crosses 0.55 here.
+    snap = c.observeDetections([det(0.46, 0.16)], 300);
     expect(snap.count).toBe(1);
 
-    snap = c.observeDetections([det(0.44, 0.14)], 200);
+    // Still tracked past the line — must not double count.
+    snap = c.observeDetections([det(0.6, 0.2)], 400);
     expect(snap.count).toBe(1);
   });
 
-  it("counts a vehicle crossing the line once per round", () => {
+  it("does not count a static box that never crosses the line", () => {
     const c = new VehicleCountRoundCounter();
     c.beginRound("r1");
+    for (let t = 0; t < 800; t += 100) {
+      c.observeDetections([det(0.2, 0.1)], t);
+    }
+    expect(c.snapshot().count).toBe(0);
+  });
 
-    c.observeDetections([det(0.38, 0.12)], 0);
-    c.observeDetections([det(0.44, 0.14)], 100);
-    const snap = c.observeDetections([det(0.56, 0.18)], 300);
-    expect(snap.count).toBe(1);
+  it("does not count low-confidence flicker", () => {
+    const c = new VehicleCountRoundCounter();
+    c.beginRound("r1");
+    c.observeDetections([det(0.42, 0.14, 0.3)], 0);
+    const snap = c.observeDetections([det(0.46, 0.16, 0.3)], 100);
+    expect(snap.count).toBe(0);
   });
 
   it("resets between rounds", () => {
     const c = new VehicleCountRoundCounter();
     c.beginRound("r1");
     c.observeDetections([det(0.42, 0.14)], 0);
-    c.observeDetections([det(0.42, 0.14)], 100);
+    c.observeDetections([det(0.46, 0.16)], 100);
     c.endRound();
     c.beginRound("r2");
     expect(c.snapshot().count).toBe(0);

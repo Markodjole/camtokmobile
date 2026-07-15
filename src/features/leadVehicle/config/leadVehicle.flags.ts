@@ -60,7 +60,11 @@ export function vehicleCountRoundEnabled(): boolean {
   return true;
 }
 
-/** Count rounds use hybrid (on-device + server) by default for higher precision. */
+/**
+ * Count rounds default to on-device for predictable counting. Enable hybrid
+ * (server refine) only once a real detector is configured server-side — set
+ * EXPO_PUBLIC_VEHICLE_COUNT_ROUND_MODE=hybrid or EXPO_PUBLIC_LEAD_VEHICLE_REMOTE=1.
+ */
 export function vehicleCountRoundInferenceMode(): InferenceMode {
   const raw = process.env.EXPO_PUBLIC_VEHICLE_COUNT_ROUND_MODE;
   if (
@@ -72,5 +76,5 @@ export function vehicleCountRoundInferenceMode(): InferenceMode {
     return raw;
   }
   if (leadVehicleRemoteInferenceEnabled()) return "hybrid";
-  return "hybrid";
+  return "on_device";
 }
