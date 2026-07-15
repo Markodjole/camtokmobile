@@ -3,8 +3,15 @@ export const VEHICLE_COUNT_ROUND_MS = 30_000;
 
 /** Count line in normalized road-band space (0=top, 1=bottom). */
 export const VEHICLE_COUNT_LINE_Y = 0.55;
-/** A track must reach at least this far down to be eligible (ignore far horizon). */
-export const VEHICLE_COUNT_MIN_BOTTOM_Y = 0.4;
+
+/**
+ * A vehicle counts once it clearly approaches the camera: its bottom edge must
+ * reach the near field and it must have travelled downward across the frame.
+ * This catches approaching, overtaken, and side-entering vehicles (all real
+ * traffic) while rejecting far-horizon flicker and static false positives.
+ */
+export const VEHICLE_COUNT_NEAR_FIELD_Y = 0.5;
+export const VEHICLE_COUNT_MIN_DOWNWARD_TRAVEL = 0.06;
 
 /** Association: match a detection to a track by IoU OR nearby centroid. */
 export const ROUND_TRACK_MATCH_IOU = 0.15;

@@ -5,7 +5,7 @@ import type {
 } from "./leadVehicle.types";
 
 /** Per-detection minimum score after native inference. */
-export const VEHICLE_MIN_CONFIDENCE = 0.42;
+export const VEHICLE_MIN_CONFIDENCE = 0.46;
 
 /** Reject tiny far noise and full-frame road blobs. */
 export const VEHICLE_MIN_AREA = 0.008;
@@ -47,19 +47,9 @@ export function vehicleRejectReason(
   if (area > VEHICLE_MAX_AREA) return "too_large";
 
   const aspect = box.width / Math.max(box.height, 0.0001);
-  if (aspect < VEHICLE_MIN_ASPECT || aspect > VEHICLE_MAX_ASPECT) {
-    return "bad_aspect";
-  }
 
-  if (box.width > VEHICLE_MAX_WIDTH) return "too_wide";
-
-  const bottom = boxBottomCenter(box);
-  if (bottom.y > VEHICLE_MAX_BOTTOM_Y) return "bottom_texture";
-
-  // Horizontal road / asphalt band (very wide + short).
-  if (aspect > 2.2 && box.height < 0.14) return "road_strip";
-
-  // Curb / pavement lip along the bottom of the crop.
+  // Curb / pavement lip along the bottom of the crop (check before generic
+  // aspect/width rules so the specific reason wins and it is still rejected).
   if (
     box.y + box.height > 0.94 &&
     box.height < 0.11 &&
@@ -68,17 +58,31 @@ export function vehicleRejectReason(
     return "curb_band";
   }
 
+  // Horizontal road / asphalt band (very wide + short).
+  if (aspect > 2.2 && box.height < 0.14) return "road_strip";
+
+  // Full-width boxes are almost never a single vehicle.
+  if (box.width > VEHICLE_MAX_WIDTH) return "too_wide";
+
+  if (aspect < VEHICLE_MIN_ASPECT || aspect > VEHICLE_MAX_ASPECT) {
+    return "bad_aspect";
+  }
+
+  const bottom = boxBottomCenter(box);
+  if (bottom.y > VEHICLE_MAX_BOTTOM_Y) return "bottom_texture";
+
   const center = boxCenter(box);
   // Large low-confidence blobs (pots, barriers mislabeled as vehicle).
   if (area > 0.12 && d.confidence < 0.58) {
     return "low_confidence";
   }
 
-  // Pots / posts: small upright blobs with weak scores.
+  // Pots / posts / people: small upright blobs (taller than wide) with modest
+  // scores in the lower frame — real vehicles are wider than tall up close.
   if (
     area < 0.045 &&
     aspect < 0.85 &&
-    d.confidence < 0.55 &&
+    d.confidence < 0.6 &&
     center.y > 0.55
   ) {
     return "low_confidence";

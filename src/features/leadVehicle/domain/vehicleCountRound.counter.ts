@@ -6,7 +6,8 @@ import {
   ROUND_TRACK_MATCH_DIST,
   ROUND_TRACK_MATCH_IOU,
   ROUND_TRACK_MAX_MISSES,
-  VEHICLE_COUNT_LINE_Y,
+  VEHICLE_COUNT_MIN_DOWNWARD_TRAVEL,
+  VEHICLE_COUNT_NEAR_FIELD_Y,
 } from "./vehicleCountRound.constants";
 import type { NormalizedBoundingBox, VehicleDetection } from "./leadVehicle.types";
 
@@ -23,9 +24,9 @@ type RoundTrack = {
   misses: number;
   peakConfidence: number;
   lastBox: NormalizedBoundingBox;
-  lastBottomY: number;
-  firstBottomY: number;
-  crossed: boolean;
+  minBottomY: number;
+  maxBottomY: number;
+  counted: boolean;
 };
 
 let nextRoundTrackId = 1;
@@ -55,9 +56,10 @@ function associationScore(
 }
 
 /**
- * Rush Hour–style counter. Counts a unique vehicle exactly once when its
- * bottom edge crosses the count line while moving downward (i.e. it passes the
- * camera). Robust tracking prevents both fragmentation overcount and misses.
+ * Rush Hour–style counter. Robust tracking makes one physical vehicle exactly
+ * one track; a track counts once when it clearly approaches the camera (reaches
+ * the near field after travelling downward). Higher recall than a single
+ * line-cross while still rejecting far flicker and static false positives.
  */
 export class VehicleCountRoundCounter {
   private roundId: string | null = null;
@@ -130,16 +132,18 @@ export class VehicleCountRoundCounter {
       if (used.has(idx)) return;
       const bottom = boxBottomCenter(det.boundingBox);
       const id = `round_${nextRoundTrackId++}`;
-      this.tracks.set(id, {
+      const track: RoundTrack = {
         id,
         hits: 1,
         misses: 0,
         peakConfidence: det.confidence,
         lastBox: det.boundingBox,
-        lastBottomY: bottom.y,
-        firstBottomY: bottom.y,
-        crossed: false,
-      });
+        minBottomY: bottom.y,
+        maxBottomY: bottom.y,
+        counted: false,
+      };
+      this.tracks.set(id, track);
+      this.tryCount(track);
     });
 
     return this.snapshot();
@@ -157,25 +161,26 @@ export class VehicleCountRoundCounter {
 
   private bump(track: RoundTrack, det: VehicleDetection): void {
     const bottom = boxBottomCenter(det.boundingBox);
-    const prevBottomY = track.lastBottomY;
     track.hits += 1;
     track.misses = 0;
     track.peakConfidence = Math.max(track.peakConfidence, det.confidence);
     track.lastBox = det.boundingBox;
+    track.minBottomY = Math.min(track.minBottomY, bottom.y);
+    track.maxBottomY = Math.max(track.maxBottomY, bottom.y);
+    this.tryCount(track);
+  }
 
-    const stable =
-      track.hits >= ROUND_MIN_HITS &&
-      track.peakConfidence >= ROUND_MIN_CONFIDENCE;
-
-    // Count on a downward crossing of the line = the vehicle passed the camera.
-    const crossedDown =
-      prevBottomY < VEHICLE_COUNT_LINE_Y && bottom.y >= VEHICLE_COUNT_LINE_Y;
-
-    if (!track.crossed && stable && crossedDown) {
-      track.crossed = true;
-      this.count += 1;
+  private tryCount(track: RoundTrack): void {
+    if (track.counted) return;
+    if (track.hits < ROUND_MIN_HITS) return;
+    if (track.peakConfidence < ROUND_MIN_CONFIDENCE) return;
+    // Must reach the near field (a real vehicle you approached/passed)…
+    if (track.maxBottomY < VEHICLE_COUNT_NEAR_FIELD_Y) return;
+    // …and have travelled downward (rejects static false positives).
+    if (track.maxBottomY - track.minBottomY < VEHICLE_COUNT_MIN_DOWNWARD_TRAVEL) {
+      return;
     }
-
-    track.lastBottomY = bottom.y;
+    track.counted = true;
+    this.count += 1;
   }
 }
