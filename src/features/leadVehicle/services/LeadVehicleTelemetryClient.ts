@@ -91,13 +91,7 @@ export class LeadVehicleTelemetryClient {
   }): Promise<void> {
     if (!this.opts.enabled) return;
     const detections = this.opts.getOverlayDetections?.() ?? [];
-    if (!args.lead && detections.length === 0) {
-      // Still clear remote overlay if we previously had detections / counters.
-      if (!this.hadDetections && (args.vehiclesPassed ?? 0) === 0) return;
-      this.hadDetections = false;
-    } else {
-      this.hadDetections = detections.length > 0 || !!args.lead;
-    }
+    this.hadDetections = detections.length > 0 || !!args.lead;
 
     const mapped: LeadVehicleTelemetryEvent = {
       eventType: "lead_vehicle_updated",

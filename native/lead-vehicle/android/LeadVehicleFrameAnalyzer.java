@@ -52,7 +52,10 @@ public final class LeadVehicleFrameAnalyzer {
                     });
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private final Object interpreterLock = new Object();
+  /** If inference wedges, recover so analysis does not stop permanently. */
+    private static final long BUSY_WATCHDOG_MS = 2500L;
 
+    private volatile long busySinceMs = 0;
     private volatile boolean enabled = false;
     private volatile boolean available = false;
     private volatile String statusDetail = "uninitialized";
@@ -115,9 +118,22 @@ public final class LeadVehicleFrameAnalyzer {
         if (now - lastInferAtMs < MIN_INTERVAL_MS) {
             return;
         }
+        if (busy.get()) {
+            if (busySinceMs > 0 && now - busySinceMs > BUSY_WATCHDOG_MS) {
+                Log.w(TAG, "Inference watchdog: clearing wedged busy flag");
+                busy.set(false);
+                busySinceMs = 0;
+            } else {
+                if (busySinceMs == 0) {
+                    busySinceMs = now;
+                }
+                return;
+            }
+        }
         if (!busy.compareAndSet(false, true)) {
             return;
         }
+        busySinceMs = now;
         lastInferAtMs = now;
 
         VideoFrame.Buffer buffer = frame.getBuffer();
@@ -126,10 +142,12 @@ public final class LeadVehicleFrameAnalyzer {
             i420 = buffer.toI420();
         } catch (Exception e) {
             busy.set(false);
+            busySinceMs = 0;
             return;
         }
         if (i420 == null) {
             busy.set(false);
+            busySinceMs = 0;
             return;
         }
 
@@ -142,16 +160,23 @@ public final class LeadVehicleFrameAnalyzer {
         final ByteBuffer v = copyPlane(i420.getDataV(), i420.getStrideV(), (width + 1) / 2, (height + 1) / 2);
         i420.release();
 
-        executor.execute(
-                () -> {
-                    try {
-                        runInference(y, u, v, width, height, rotation, timestampMs);
-                    } catch (Exception e) {
-                        Log.w(TAG, "Inference failed", e);
-                    } finally {
-                        busy.set(false);
-                    }
-                });
+        try {
+            executor.execute(
+                    () -> {
+                        try {
+                            runInference(y, u, v, width, height, rotation, timestampMs);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Inference failed", e);
+                        } finally {
+                            busy.set(false);
+                            busySinceMs = 0;
+                        }
+                    });
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to schedule inference", e);
+            busy.set(false);
+            busySinceMs = 0;
+        }
     }
 
     private void runInference(

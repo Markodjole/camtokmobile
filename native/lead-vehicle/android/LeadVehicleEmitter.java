@@ -35,7 +35,15 @@ public final class LeadVehicleEmitter {
         if (ctx == null || !ctx.hasActiveReactInstance()) {
             return;
         }
-        ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit(eventName, params);
+        // Inference runs off the capture thread; emit on the RN UI queue.
+        ctx.runOnUiQueueThread(
+                () -> {
+                    ReactApplicationContext active = reactContext;
+                    if (active == null || !active.hasActiveReactInstance()) {
+                        return;
+                    }
+                    active.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                            .emit(eventName, params);
+                });
     }
 }

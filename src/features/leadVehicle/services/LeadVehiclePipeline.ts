@@ -31,6 +31,7 @@ import type { VehicleInferenceEngine } from "./VehicleInferenceEngine";
 import { createVehicleInferenceEngine } from "./createVehicleInferenceEngine";
 import { LeadVehicleEventEmitter } from "./LeadVehicleEventEmitter";
 import { LeadVehicleTelemetryClient } from "./LeadVehicleTelemetryClient";
+import type { LeadVehicleOverlayDetection } from "./LeadVehicleTelemetryClient";
 import { LeadVehicleTracker } from "./LeadVehicleTracker";
 import { OnDeviceVehicleInferenceEngine } from "./OnDeviceVehicleInferenceEngine";
 
@@ -94,6 +95,7 @@ export class LeadVehiclePipeline {
   private corridor: ForwardCorridor;
   private inferenceFps: number;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private overlayKeepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private opts: LeadVehiclePipelineOptions;
   private listeners = new Set<() => void>();
 
@@ -111,19 +113,7 @@ export class LeadVehiclePipeline {
         const snap = this.getSnapshot();
         return snap.predictionReadiness;
       },
-      getOverlayDetections: () => {
-        const snap = this.getSnapshot();
-        const leadId = snap.leadVehicle?.trackId ?? null;
-        return snap.tracks
-          .filter((t) => t.missedFrameCount === 0)
-          .map((t) => ({
-            trackId: t.trackId,
-            vehicleType: t.vehicleType,
-            confidence: t.trackingConfidence,
-            isLead: leadId != null && t.trackId === leadId,
-            normalizedBoundingBox: t.boundingBox,
-          }));
-      },
+      getOverlayDetections: () => this.buildOverlayDetections(),
       getPassCounts: () => this.lastPassSnapshot,
     });
     this.events.subscribe((ev) => {
@@ -195,6 +185,7 @@ export class LeadVehiclePipeline {
           this.status = "searching";
           this.notify();
           this.startMockPump();
+          this.startOverlayKeepalive();
           return;
         }
         this.status = "error";
@@ -220,13 +211,19 @@ export class LeadVehiclePipeline {
             result.detections,
             result.timestampMs,
             result.inferenceDurationMs,
-          );
+          ).catch((e) => {
+            console.warn(
+              "[leadVehicle] applyDetections failed",
+              e instanceof Error ? e.message : e,
+            );
+          });
         });
       }
 
       if (this.opts.inferenceMode === "mock") {
         this.startMockPump();
       }
+      this.startOverlayKeepalive();
     } catch (e) {
       this.status = "error";
       this.error = e instanceof Error ? e : new Error(String(e));
@@ -242,6 +239,7 @@ export class LeadVehiclePipeline {
 
   async stop(): Promise<void> {
     this.stopMockPump();
+    this.stopOverlayKeepalive();
     this.pending = null;
     this.busy = false;
     try {
@@ -374,12 +372,107 @@ export class LeadVehiclePipeline {
     }
   }
 
-  private lastOverlayPushMs = 0;
+  private lastOverlayPushWallMs = 0;
+
+  private buildOverlayDetections(): LeadVehicleOverlayDetection[] {
+    const leadId = this.leadTrackId;
+    const tracks = this.tracker
+      .getTracks()
+      .filter((t) => t.missedFrameCount === 0);
+    if (tracks.length > 0) {
+      return tracks.map((t) => ({
+        trackId: t.trackId,
+        vehicleType: t.vehicleType,
+        confidence: t.trackingConfidence,
+        isLead: leadId != null && t.trackId === leadId,
+        normalizedBoundingBox: t.boundingBox,
+      }));
+    }
+    // Fall back to raw detector boxes so the viewer keeps updating between tracks.
+    return this.lastDetections.map((d, i) => ({
+      trackId: `raw_${i}`,
+      vehicleType: d.vehicleType,
+      confidence: d.confidence,
+      isLead: false,
+      normalizedBoundingBox: d.boundingBox,
+    }));
+  }
+
+  private startOverlayKeepalive(): void {
+    this.stopOverlayKeepalive();
+    this.overlayKeepaliveTimer = setInterval(() => {
+      if (
+        this.status === "idle" ||
+        this.status === "stopped" ||
+        this.status === "error"
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (now - this.lastOverlayPushWallMs < EVENT_HEARTBEAT_MS) return;
+      this.pushOverlayFrame(now);
+    }, EVENT_HEARTBEAT_MS);
+  }
+
+  private stopOverlayKeepalive(): void {
+    if (this.overlayKeepaliveTimer) {
+      clearInterval(this.overlayKeepaliveTimer);
+      this.overlayKeepaliveTimer = null;
+    }
+  }
+
+  private pushOverlayFrame(timestampMs: number): void {
+    this.lastOverlayPushWallMs = timestampMs;
+    const overlayLead = this.leadTrackId
+      ? this.tracker.getTracks().find((t) => t.trackId === this.leadTrackId)
+      : null;
+    void this.telemetry.publishOverlayFrame({
+      rideId: this.opts.rideId,
+      sessionId: this.opts.sessionId,
+      timestampMs,
+      vehiclesOnScreen: this.lastPassSnapshot.vehiclesOnScreen,
+      vehiclesPassed: this.lastPassSnapshot.vehiclesPassed,
+      lastPass: this.lastPassSnapshot.lastPass
+        ? {
+            trackId: this.lastPassSnapshot.lastPass.trackId,
+            timestampMs: this.lastPassSnapshot.lastPass.timestampMs,
+            delta: this.lastPassSnapshot.lastPass.delta,
+          }
+        : null,
+      lead: overlayLead
+        ? (() => {
+            const snap = this.toSnapshot(overlayLead, timestampMs);
+            return {
+              trackId: snap.trackId,
+              vehicleType: snap.vehicleType,
+              confidence: snap.confidence,
+              sameDirectionConfidence: snap.sameDirectionConfidence,
+              relativeState: snap.relativeState,
+              visibleDurationMs: snap.visibleDurationMs,
+              lateralPosition: snap.lateralPosition,
+              boundingBox: snap.boundingBox,
+            };
+          })()
+        : null,
+    });
+  }
 
   private async applyDetections(
     detections: VehicleDetection[],
     timestampMs: number,
     _inferenceMs: number,
+  ): Promise<void> {
+    try {
+      await this.applyDetectionsInner(detections, timestampMs);
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      console.warn("[leadVehicle] detection pipeline error", this.error.message);
+    }
+  }
+
+  private async applyDetectionsInner(
+    detections: VehicleDetection[],
+    timestampMs: number,
   ): Promise<void> {
     this.lastDetections = detections;
     const { tracks, removed: _removed } = this.tracker.update(
@@ -492,40 +585,9 @@ export class LeadVehiclePipeline {
 
     this.notify();
 
-    if (timestampMs - this.lastOverlayPushMs >= EVENT_HEARTBEAT_MS) {
-      this.lastOverlayPushMs = timestampMs;
-      const overlayLead = this.leadTrackId
-        ? this.tracker.getTracks().find((t) => t.trackId === this.leadTrackId)
-        : null;
-      void this.telemetry.publishOverlayFrame({
-        rideId: this.opts.rideId,
-        sessionId: this.opts.sessionId,
-        timestampMs,
-        vehiclesOnScreen: this.lastPassSnapshot.vehiclesOnScreen,
-        vehiclesPassed: this.lastPassSnapshot.vehiclesPassed,
-        lastPass: this.lastPassSnapshot.lastPass
-          ? {
-              trackId: this.lastPassSnapshot.lastPass.trackId,
-              timestampMs: this.lastPassSnapshot.lastPass.timestampMs,
-              delta: this.lastPassSnapshot.lastPass.delta,
-            }
-          : null,
-        lead: overlayLead
-          ? (() => {
-              const snap = this.toSnapshot(overlayLead, timestampMs);
-              return {
-                trackId: snap.trackId,
-                vehicleType: snap.vehicleType,
-                confidence: snap.confidence,
-                sameDirectionConfidence: snap.sameDirectionConfidence,
-                relativeState: snap.relativeState,
-                visibleDurationMs: snap.visibleDurationMs,
-                lateralPosition: snap.lateralPosition,
-                boundingBox: snap.boundingBox,
-              };
-            })()
-          : null,
-      });
+    const nowWall = Date.now();
+    if (nowWall - this.lastOverlayPushWallMs >= EVENT_HEARTBEAT_MS) {
+      this.pushOverlayFrame(nowWall);
     }
   }
 
