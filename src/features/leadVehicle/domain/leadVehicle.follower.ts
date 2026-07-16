@@ -10,11 +10,12 @@ export type LeadFollowStatus =
   | "passed";
 
 /**
- * Follow phase: "evaluating" while we verify the vehicle keeps a stable
- * distance (≈ same speed as us) — drawn as a dashed blue box; "locked" once
- * the relation has been stable for LOCK_STABLE_MS — solid green box.
+ * Follow phases:
+ *  - "initial":    first second of a new follow — nothing drawn yet;
+ *  - "evaluating": dashed blue while the speed relation is verified;
+ *  - "locked":     solid green — stable relation confirmed, sticky follow.
  */
-export type LeadFollowPhase = "evaluating" | "locked";
+export type LeadFollowPhase = "initial" | "evaluating" | "locked";
 
 export interface LeadFollowResult {
   trackId: string;
@@ -47,7 +48,10 @@ const TREND_LOOKBACK_MS = 700;
  *  - but the box is only *drawn* for the first RENDER_HOLD_MISSED misses, so
  *    the square still disappears quickly when the vehicle is really gone.
  */
-const MAX_MISSED = 6;
+const MAX_MISSED = 10;
+/** Locked (green) follows get an even longer re-find window — once trusted,
+ *  we stick with the same vehicle as long as there's any chance it's there. */
+const MAX_MISSED_LOCKED = 14;
 const RENDER_HOLD_MISSED = 2;
 /** Growth ratio over TREND_LOOKBACK_MS that counts as getting closer / further. */
 const APPROACH_RATIO = 1.15;
@@ -58,9 +62,13 @@ const BOX_SMOOTHING = 0.7;
 /** Overtake heuristic: lead lost while big + low in frame = we passed it. */
 const PASS_AREA = 0.045;
 const PASS_BOTTOM_Y = 0.62;
-/** The relation (stable distance ≈ matching speed) must hold continuously
- *  this long before the follow is "locked" and the box turns green. */
-const LOCK_STABLE_MS = 3000;
+/** Phase timing: invisible for the first second, then dashed blue, then
+ *  green after ~3s total — unless the distance relation is persistently
+ *  unstable, which restarts the lock clock. A single bumpy frame does NOT
+ *  reset it (that made blue→green take forever). */
+const INITIAL_MS = 1000;
+const LOCK_AFTER_MS = 3000;
+const UNSTABLE_RESET_FRAMES = 3;
 
 /**
  * Acquisition gates. A vehicle only becomes the lead after being seen in
@@ -88,6 +96,11 @@ const MAX_ACQUIRE_CENTER_X = 0.7;
 const MATCH_CENTER_DIST = 0.14;
 const MATCH_DIST_PER_MISS = 0.04;
 const MATCH_DIST_MAX = 0.22;
+const MATCH_DIST_MAX_LOCKED = 0.3;
+/** Strong spatial overlap overrides class/size gating — the detector often
+ *  flickers a car↔truck↔motorcycle label on the SAME physical vehicle, and
+ *  that must never break an ongoing follow. */
+const OVERRIDE_IOU = 0.3;
 /** A continuation match must be roughly the same physical size — a far small
  *  car must never inherit the identity of a near big one (or vice versa). */
 const MATCH_SIZE_RATIO_MIN = 0.45;
@@ -101,9 +114,11 @@ type CurrentLead = {
   lastSeenMs: number;
   missed: number;
   history: { t: number; area: number }[];
-  /** Start of the current stretch of stable distance; 0 = not stable. */
-  stableStartMs: number;
-  /** Once the relation held for LOCK_STABLE_MS the follow stays locked. */
+  /** Start of the current lock countdown (reset on sustained instability). */
+  lockClockStartMs: number;
+  /** Consecutive frames with a non-stable distance reading. */
+  unstableStreak: number;
+  /** Once locked (green) the follow stays locked until it ends. */
   locked: boolean;
 };
 
@@ -166,11 +181,12 @@ export class LeadVehicleFollower {
 
       // Identity may only continue on the same kind of vehicle at a similar
       // size — otherwise a neighboring car/bike would inherit this number.
+      // (Strong overlap bypasses the gates — see isContinuationCandidate.)
       const match = this.matchNear(
         this.current.box,
         detections.filter((d) => this.isContinuationCandidate(d)),
         Math.min(
-          MATCH_DIST_MAX,
+          this.current.locked ? MATCH_DIST_MAX_LOCKED : MATCH_DIST_MAX,
           MATCH_CENTER_DIST + this.current.missed * MATCH_DIST_PER_MISS,
         ),
       );
@@ -183,7 +199,10 @@ export class LeadVehicleFollower {
         // Briefly hold the drawn box (occlusion / dropped frame).
         return this.buildResult(now, true);
       }
-      if (this.current.missed <= MAX_MISSED) {
+      if (
+        this.current.missed <=
+        (this.current.locked ? MAX_MISSED_LOCKED : MAX_MISSED)
+      ) {
         // Hide the box but keep the identity — if the detector re-finds this
         // vehicle within the window it keeps its number (no fake "switch").
         return null;
@@ -229,7 +248,8 @@ export class LeadVehicleFollower {
       lastSeenMs: now,
       missed: 0,
       history: [{ t: now, area: boxArea(candidate.boundingBox) }],
-      stableStartMs: 0,
+      lockClockStartMs: now,
+      unstableStreak: 0,
       locked: false,
     };
     return this.buildResult(now);
@@ -278,7 +298,8 @@ export class LeadVehicleFollower {
       lastSeenMs: now,
       missed: 0,
       history: [{ t: now, area: boxArea(moto.boundingBox) }],
-      stableStartMs: 0,
+      lockClockStartMs: now,
+      unstableStreak: 0,
       locked: false,
     };
     return this.buildResult(now);
@@ -292,6 +313,10 @@ export class LeadVehicleFollower {
   private isContinuationCandidate(d: VehicleDetection): boolean {
     const cur = this.current;
     if (!cur) return false;
+    // Strong overlap with the last box IS the same physical vehicle, whatever
+    // label the detector flickered to this frame — never drop a visible lead
+    // over a momentary car↔truck↔bike misclassification.
+    if (iou(cur.box, d.boundingBox) >= OVERRIDE_IOU) return true;
     if (
       d.rawLabel &&
       vehicleGroup(d.rawLabel) !== vehicleGroup(cur.label)
@@ -356,27 +381,39 @@ export class LeadVehicleFollower {
     const status: LeadFollowStatus = occluded
       ? "holding"
       : this.trendStatus(now);
-    // Speed-match lock: distance must stay stable ("holding") continuously
-    // for LOCK_STABLE_MS before the follow is trusted (green). Occluded
-    // frames neither advance nor reset the clock.
-    if (!cur.locked && !occluded) {
+    // Lock clock: green after LOCK_AFTER_MS of following, unless the distance
+    // relation is persistently unstable — only UNSTABLE_RESET_FRAMES
+    // consecutive unstable readings restart the clock (single bumpy frames
+    // must not; that made blue→green take far too long).
+    if (!occluded) {
       if (status === "holding") {
-        if (cur.stableStartMs === 0) cur.stableStartMs = now;
-        if (now - cur.stableStartMs >= LOCK_STABLE_MS) cur.locked = true;
+        cur.unstableStreak = 0;
       } else {
-        cur.stableStartMs = 0;
+        cur.unstableStreak += 1;
+        if (!cur.locked && cur.unstableStreak >= UNSTABLE_RESET_FRAMES) {
+          cur.lockClockStartMs = now;
+        }
       }
     }
+    if (!cur.locked && now - cur.lockClockStartMs >= LOCK_AFTER_MS) {
+      cur.locked = true;
+    }
+    const visibleMs = now - cur.firstSeenMs;
+    const phase: LeadFollowPhase = cur.locked
+      ? "locked"
+      : visibleMs >= INITIAL_MS
+        ? "evaluating"
+        : "initial";
     const center = boxCenter(cur.box);
     return {
       trackId: cur.trackId,
       boundingBox: cur.box,
       status,
-      phase: cur.locked ? "locked" : "evaluating",
+      phase,
       vehicleLabel: cur.label,
       lateralPosition:
         center.x < 0.4 ? "left" : center.x > 0.6 ? "right" : "center",
-      visibleDurationMs: now - cur.firstSeenMs,
+      visibleDurationMs: visibleMs,
     };
   }
 
