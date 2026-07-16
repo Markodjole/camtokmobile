@@ -11,30 +11,35 @@
 
 import type { InferenceMode } from "../domain/leadVehicle.types";
 
-function flag(name: string): boolean {
-  const v = process.env[name];
+// IMPORTANT: every env read below must be a *static* `process.env.EXPO_PUBLIC_X`
+// member access. Metro inlines those at bundle time; dynamic `process.env[name]`
+// is NOT inlined and evaluates to undefined on-device. That bug silently
+// disabled telemetry (no viewer boxes) in release builds while dev builds were
+// rescued by the __DEV__ fallback.
+
+function isOn(v: string | undefined): boolean {
   return v === "1" || v === "true";
 }
 
 export function leadVehicleTrackingEnabled(): boolean {
-  if (flag("EXPO_PUBLIC_LEAD_VEHICLE_TRACKING")) return true;
-  // Default on — mock detector is always safe; disable with =0 if needed.
   const raw = process.env.EXPO_PUBLIC_LEAD_VEHICLE_TRACKING;
+  if (isOn(raw)) return true;
+  // Default on — mock detector is always safe; disable with =0 if needed.
   if (raw === "0" || raw === "false") return false;
   return true;
 }
 
 export function leadVehicleDebugOverlayEnabled(): boolean {
   // Rider never sees boxes/HUD unless explicitly forced for engineering debug.
-  return flag("EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY");
+  return isOn(process.env.EXPO_PUBLIC_LEAD_VEHICLE_DEBUG_OVERLAY);
 }
 
 export function leadVehicleRemoteInferenceEnabled(): boolean {
-  return flag("EXPO_PUBLIC_LEAD_VEHICLE_REMOTE");
+  return isOn(process.env.EXPO_PUBLIC_LEAD_VEHICLE_REMOTE);
 }
 
 export function leadVehicleTelemetryEnabled(): boolean {
-  if (flag("EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY")) return true;
+  if (isOn(process.env.EXPO_PUBLIC_LEAD_VEHICLE_TELEMETRY)) return true;
   // In dev, push events so local camtok can open overtake markets.
   return typeof __DEV__ !== "undefined" && __DEV__;
 }
