@@ -76,14 +76,22 @@ const MIN_ACQUIRE_AREA = 0.005;
  *  over. Prevents the box from jumping on a single misclassified frame. */
 const MOTO_TAKEOVER_SIGHTINGS = 4;
 const MIN_ACQUIRE_CONFIDENCE = 0.45;
-/** Only acquire roughly ahead of us — edge blobs are cross traffic. */
-const MIN_ACQUIRE_CENTER_X = 0.15;
-const MAX_ACQUIRE_CENTER_X = 0.85;
+/** Lane corridor: only acquire vehicles roughly in OUR lane ahead — the
+ *  center strip of the frame. Adjacent-lane vehicles don't share our speed
+ *  relation and made the follow jump lanes. */
+const MIN_ACQUIRE_CENTER_X = 0.3;
+const MAX_ACQUIRE_CENTER_X = 0.7;
 /** Match radius (normalized center distance) between frames. Grows with each
- *  missed frame — the vehicle keeps moving while the detector blinks. */
+ *  missed frame — the vehicle keeps moving while the detector blinks — but is
+ *  capped tightly: a wide radius let a *different* nearby vehicle inherit the
+ *  old identity (bike suddenly labeled "car #67"). */
 const MATCH_CENTER_DIST = 0.14;
-const MATCH_DIST_PER_MISS = 0.05;
-const MATCH_DIST_MAX = 0.34;
+const MATCH_DIST_PER_MISS = 0.04;
+const MATCH_DIST_MAX = 0.22;
+/** A continuation match must be roughly the same physical size — a far small
+ *  car must never inherit the identity of a near big one (or vice versa). */
+const MATCH_SIZE_RATIO_MIN = 0.45;
+const MATCH_SIZE_RATIO_MAX = 2.2;
 
 type CurrentLead = {
   trackId: string;
@@ -103,6 +111,11 @@ type PendingLead = {
   box: NormalizedBoundingBox;
   sightings: number;
 };
+
+/** Two-wheelers and four-wheelers never share an identity. */
+function vehicleGroup(label: string | undefined): "two" | "four" {
+  return label === "motorcycle" || label === "bicycle" ? "two" : "four";
+}
 
 /**
  * Follows exactly one "lead" vehicle — the one ahead of us, moving with us.
@@ -151,9 +164,11 @@ export class LeadVehicleFollower {
       const moto = this.observeMotoChallenger(detections, now);
       if (moto) return moto;
 
+      // Identity may only continue on the same kind of vehicle at a similar
+      // size — otherwise a neighboring car/bike would inherit this number.
       const match = this.matchNear(
         this.current.box,
-        detections,
+        detections.filter((d) => this.isContinuationCandidate(d)),
         Math.min(
           MATCH_DIST_MAX,
           MATCH_CENTER_DIST + this.current.missed * MATCH_DIST_PER_MISS,
@@ -269,6 +284,25 @@ export class LeadVehicleFollower {
     return this.buildResult(now);
   }
 
+  /**
+   * Whether a detection can *continue* the current lead's identity: same
+   * vehicle group (two-wheeler vs four-wheeler) and roughly the same size.
+   * Anything else is a different physical vehicle → new number.
+   */
+  private isContinuationCandidate(d: VehicleDetection): boolean {
+    const cur = this.current;
+    if (!cur) return false;
+    if (
+      d.rawLabel &&
+      vehicleGroup(d.rawLabel) !== vehicleGroup(cur.label)
+    ) {
+      return false;
+    }
+    const ratio =
+      boxArea(d.boundingBox) / Math.max(1e-6, boxArea(cur.box));
+    return ratio >= MATCH_SIZE_RATIO_MIN && ratio <= MATCH_SIZE_RATIO_MAX;
+  }
+
   /** Best IoU match near a reference box, else nearest center within radius. */
   private matchNear(
     ref: NormalizedBoundingBox,
@@ -378,7 +412,9 @@ export class LeadVehicleFollower {
     let bestScore = -Infinity;
     for (const d of pool) {
       const c = boxCenter(d.boundingBox);
-      const score = boxArea(d.boundingBox) - 0.6 * Math.abs(c.x - 0.5);
+      // Strong lane-center preference: the vehicle we share speed with is the
+      // one directly ahead, not one off in a neighboring lane.
+      const score = boxArea(d.boundingBox) - 1.0 * Math.abs(c.x - 0.5);
       if (score > bestScore) {
         bestScore = score;
         best = d;
