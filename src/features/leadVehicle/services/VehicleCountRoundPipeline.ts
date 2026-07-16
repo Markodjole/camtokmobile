@@ -35,6 +35,7 @@ import {
   leadVehicleNativeSetEnabled,
   leadVehicleNativeSetSamplingEnabled,
 } from "@/lib/leadVehicleNative";
+import { publishLeadVehicleBox } from "@/lib/leadVehicleChannel";
 
 export type VehicleCountRoundPipelineOptions = {
   rideId: string;
@@ -293,6 +294,25 @@ export class VehicleCountRoundPipeline {
         delta: 1,
       };
     }
+
+    // Realtime path: every detector frame goes straight to viewers over the
+    // P2P data channel (~50ms) — the HTTP/DB path below stays as fallback.
+    publishLeadVehicleBox({
+      v: 1,
+      t: timestampMs,
+      lead: lead
+        ? {
+            id: lead.trackId,
+            type: lead.vehicleLabel,
+            status: lead.status,
+            x: lead.boundingBox.x,
+            y: lead.boundingBox.y,
+            w: lead.boundingBox.width,
+            h: lead.boundingBox.height,
+          }
+        : null,
+      ...(pass ? { pass: { id: pass.trackId, t: pass.timestampMs } } : {}),
+    });
 
     if (!this.counting) {
       this.lastRound = {

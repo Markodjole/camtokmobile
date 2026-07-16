@@ -10,6 +10,7 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "./supabase";
 import { env } from "./env";
+import { registerLeadVehicleChannel } from "./leadVehicleChannel";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -188,6 +189,17 @@ export async function startBroadcasterP2p(
       (stream as any)
         .getTracks()
         .forEach((t: any) => localPc!.addTrack(t, stream as any));
+      // Realtime lead-vehicle boxes straight to the viewer (skip the server
+      // round-trip). Unordered + no retransmits: stale boxes are useless.
+      try {
+        const dc = (localPc as any).createDataChannel?.("camtok-lead", {
+          ordered: false,
+          maxRetransmits: 0,
+        });
+        if (dc) registerLeadVehicleChannel(dc);
+      } catch {
+        // Data channel is an enhancement; video must not depend on it.
+      }
       // Under CPU pressure WebRTC's default is to collapse resolution (e.g.
       // 1920x1080 → 640x352 within ~20s of streaming while detection runs).
       // Prefer dropping framerate and keeping the picture sharp.

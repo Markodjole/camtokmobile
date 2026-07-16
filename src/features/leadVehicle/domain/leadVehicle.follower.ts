@@ -52,6 +52,10 @@ const PASS_BOTTOM_Y = 0.62;
  */
 const CONFIRM_SIGHTINGS = 2;
 const MIN_ACQUIRE_AREA = 0.005;
+/** Hysteresis for switching away from a locked non-motorcycle lead: a
+ *  motorcycle must persist this many consecutive frames (~1s) before it takes
+ *  over. Prevents the box from jumping on a single misclassified frame. */
+const MOTO_TAKEOVER_SIGHTINGS = 4;
 const MIN_ACQUIRE_CONFIDENCE = 0.45;
 /** Only acquire roughly ahead of us — edge blobs are cross traffic. */
 const MIN_ACQUIRE_CENTER_X = 0.15;
@@ -85,11 +89,13 @@ export class LeadVehicleFollower {
   private pending: PendingLead | null = null;
   private idCounter = 0;
   private pendingPassEvent: LeadPassEvent | null = null;
+  private motoChallenger: PendingLead | null = null;
 
   reset(): void {
     this.current = null;
     this.pending = null;
     this.pendingPassEvent = null;
+    this.motoChallenger = null;
   }
 
   /** One-shot: returns the pass event since the last call, if any. */
@@ -105,6 +111,11 @@ export class LeadVehicleFollower {
   ): LeadFollowResult | null {
     // Stick with the current lead as long as it's matchable.
     if (this.current) {
+      // Motorcycle takeover: if we're locked on a car/truck but a motorcycle
+      // keeps showing up ahead, switch to it after MOTO_TAKEOVER_SIGHTINGS.
+      const moto = this.observeMotoChallenger(detections, now);
+      if (moto) return moto;
+
       const match = this.matchNear(this.current.box, detections);
       if (match) {
         this.updateCurrent(match, now);
@@ -157,6 +168,54 @@ export class LeadVehicleFollower {
       lastSeenMs: now,
       missed: 0,
       history: [{ t: now, area: boxArea(candidate.boundingBox) }],
+    };
+    return this.buildResult(now);
+  }
+
+  /**
+   * While locked on a non-motorcycle, watch for a persistent motorcycle and
+   * switch to it once confirmed. Returns the new lead result when a takeover
+   * happens, else null (caller continues with the current lead).
+   */
+  private observeMotoChallenger(
+    detections: VehicleDetection[],
+    now: number,
+  ): LeadFollowResult | null {
+    const cur = this.current;
+    if (!cur || cur.label === "motorcycle") {
+      this.motoChallenger = null;
+      return null;
+    }
+    const moto = this.selectCandidate(
+      detections.filter((d) => d.rawLabel === "motorcycle"),
+    );
+    if (!moto) {
+      this.motoChallenger = null;
+      return null;
+    }
+    if (
+      this.motoChallenger &&
+      this.matchNear(this.motoChallenger.box, [moto])
+    ) {
+      this.motoChallenger = {
+        box: moto.boundingBox,
+        sightings: this.motoChallenger.sightings + 1,
+      };
+    } else {
+      this.motoChallenger = { box: moto.boundingBox, sightings: 1 };
+    }
+    if (this.motoChallenger.sightings < MOTO_TAKEOVER_SIGHTINGS) return null;
+
+    this.motoChallenger = null;
+    this.idCounter += 1;
+    this.current = {
+      trackId: `lead_${this.idCounter}`,
+      box: moto.boundingBox,
+      label: "motorcycle",
+      firstSeenMs: now,
+      lastSeenMs: now,
+      missed: 0,
+      history: [{ t: now, area: boxArea(moto.boundingBox) }],
     };
     return this.buildResult(now);
   }
