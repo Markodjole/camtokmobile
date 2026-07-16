@@ -30,6 +30,12 @@ export async function leadVehicleNativeSetEnabled(
   throw new Error("LeadVehicleNative is not available on web");
 }
 
+export async function leadVehicleNativeSetSamplingEnabled(
+  _enabled: boolean,
+): Promise<void> {
+  // no-op on web
+}
+
 export function subscribeLeadVehicleDetections(
   _onPayload: (payload: import("./leadVehicleNativeShared").NativeDetectionPayload) => void,
 ): () => void {

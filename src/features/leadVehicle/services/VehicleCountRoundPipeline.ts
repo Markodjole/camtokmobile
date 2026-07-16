@@ -33,6 +33,7 @@ import type { LeadVehicleOverlayDetection } from "./LeadVehicleTelemetryClient";
 import {
   leadVehicleNativePresent,
   leadVehicleNativeSetEnabled,
+  leadVehicleNativeSetSamplingEnabled,
 } from "@/lib/leadVehicleNative";
 
 export type VehicleCountRoundPipelineOptions = {
@@ -93,6 +94,13 @@ export class VehicleCountRoundPipeline {
   /** Preview mode: follow a single lead vehicle instead of boxing all. */
   private leadFollower = new LeadVehicleFollower();
   private previewLead: LeadVehicleOverlayDetection | null = null;
+  /** Vehicles we've overtaken while following ("+1 passed" on the viewer). */
+  private previewPasses = 0;
+  private previewLastPass: {
+    trackId: string;
+    timestampMs: number;
+    delta: 1 | -1;
+  } | null = null;
 
   constructor(opts: VehicleCountRoundPipelineOptions) {
     this.opts = opts;
@@ -111,8 +119,8 @@ export class VehicleCountRoundPipeline {
       getOverlayDetections: () => this.buildOverlayDetections(),
       getPassCounts: () => ({
         vehiclesOnScreen: this.lastRound.vehiclesOnScreen,
-        vehiclesPassed: this.lastRound.count,
-        lastPass: null,
+        vehiclesPassed: this.counting ? this.lastRound.count : this.previewPasses,
+        lastPass: this.previewLastPass,
       }),
     });
   }
@@ -195,6 +203,10 @@ export class VehicleCountRoundPipeline {
         return;
       }
     }
+    // JPEG frame sampling is pure extra CPU work meant only for hybrid
+    // (server-refine) mode — leave it off for on-device-only tracking so it
+    // doesn't compete with the video encoder.
+    void this.setNativeSamplingEnabled(this.opts.inferenceMode === "hybrid");
     if (engineSupportsPushFrames(this.engine)) {
       this.engine.attachFrameHandler((result) => {
         this.inferenceDurations.push(result.inferenceDurationMs);
@@ -258,28 +270,38 @@ export class VehicleCountRoundPipeline {
     );
     this.lastDetections = vehicles;
 
+    // Always follow a single lead vehicle (the one ahead, moving with us) and
+    // stream just that one box + status — regardless of betting-round state.
+    // When it's passed, the follower lets go and picks up the next one.
+    const lead = this.leadFollower.observe(vehicles, timestampMs);
+    this.previewLead = lead
+      ? {
+          trackId: lead.trackId,
+          vehicleType: "vehicle",
+          confidence: 1,
+          isLead: true,
+          status: lead.status,
+          normalizedBoundingBox: lead.boundingBox,
+        }
+      : null;
+    const pass = this.leadFollower.takePassEvent();
+    if (pass) {
+      this.previewPasses += 1;
+      this.previewLastPass = {
+        trackId: pass.trackId,
+        timestampMs: pass.timestampMs,
+        delta: 1,
+      };
+    }
+
     if (!this.counting) {
-      // Preview: follow a single lead vehicle (the one ahead we're tracking)
-      // and stream just that box + status to the viewer. Far more reliable and
-      // cheap than boxing/counting every vehicle.
-      const lead = this.leadFollower.observe(vehicles, timestampMs);
-      this.previewLead = lead
-        ? {
-            trackId: lead.trackId,
-            vehicleType: "vehicle",
-            confidence: 1,
-            isLead: true,
-            status: lead.status,
-            normalizedBoundingBox: lead.boundingBox,
-          }
-        : null;
       this.lastRound = {
         ...this.lastRound,
         vehiclesOnScreen: lead ? 1 : 0,
       };
       this.notify();
       const nowWall = Date.now();
-      if (nowWall - this.lastOverlayMs >= EVENT_HEARTBEAT_MS) {
+      if (nowWall - this.lastOverlayMs >= EVENT_HEARTBEAT_MS || pass) {
         this.lastOverlayMs = nowWall;
         void this.pushOverlayFrame(timestampMs);
       }
@@ -341,17 +363,8 @@ export class VehicleCountRoundPipeline {
   }
 
   private buildOverlayDetections(): LeadVehicleOverlayDetection[] {
-    // Preview follows a single lead vehicle; send only that box + status.
-    if (this.preview && !this.counting) {
-      return this.previewLead ? [this.previewLead] : [];
-    }
-    return this.lastDetections.map((d, i) => ({
-      trackId: `round_${i}`,
-      vehicleType: d.vehicleType,
-      confidence: d.confidence,
-      isLead: false,
-      normalizedBoundingBox: d.boundingBox,
-    }));
+    // Always exactly one followed lead vehicle — never box every vehicle.
+    return this.previewLead ? [this.previewLead] : [];
   }
 
   private startMockPump(): void {
@@ -418,6 +431,15 @@ export class VehicleCountRoundPipeline {
     if (!leadVehicleNativePresent()) return;
     try {
       await leadVehicleNativeSetEnabled(enabled);
+    } catch {
+      // ignore
+    }
+  }
+
+  private async setNativeSamplingEnabled(enabled: boolean): Promise<void> {
+    if (!leadVehicleNativePresent()) return;
+    try {
+      await leadVehicleNativeSetSamplingEnabled(enabled);
     } catch {
       // ignore
     }

@@ -17,6 +17,7 @@ type LeadVehicleNativeModule = {
     modelVersion: string;
   }>;
   setEnabled(enabled: boolean): Promise<void>;
+  setSamplingEnabled(enabled: boolean): Promise<void>;
   addListener?: (eventName: string) => void;
   removeListeners?: (count: number) => void;
 };
@@ -59,6 +60,18 @@ export async function leadVehicleNativeSetEnabled(
     throw new Error("LeadVehicleNative module not present in this build");
   }
   await Native.setEnabled(enabled);
+}
+
+/** Hybrid/server-refine only — leave off for on-device-only tracking. */
+export async function leadVehicleNativeSetSamplingEnabled(
+  enabled: boolean,
+): Promise<void> {
+  if (!Native) return;
+  try {
+    await Native.setSamplingEnabled(enabled);
+  } catch {
+    // Older installed build without this method — safe to ignore.
+  }
 }
 
 export function subscribeLeadVehicleDetections(

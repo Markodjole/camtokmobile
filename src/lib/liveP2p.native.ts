@@ -188,6 +188,21 @@ export async function startBroadcasterP2p(
       (stream as any)
         .getTracks()
         .forEach((t: any) => localPc!.addTrack(t, stream as any));
+      // Under CPU pressure WebRTC's default is to collapse resolution (e.g.
+      // 1920x1080 → 640x352 within ~20s of streaming while detection runs).
+      // Prefer dropping framerate and keeping the picture sharp.
+      try {
+        const sender = (localPc as any)
+          .getSenders?.()
+          .find((s: any) => s?.track?.kind === "video");
+        if (sender?.setParameters) {
+          const params = sender.getParameters() ?? {};
+          params.degradationPreference = "maintain-resolution";
+          await sender.setParameters(params);
+        }
+      } catch {
+        // Older webrtc builds without degradationPreference — non-fatal.
+      }
       localPc.oniceconnectionstatechange = () => {
         if (
           localPc &&

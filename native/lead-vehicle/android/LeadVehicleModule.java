@@ -70,6 +70,12 @@ public class LeadVehicleModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void setSamplingEnabled(boolean enabled, Promise promise) {
+        LeadVehicleFrameAnalyzer.getInstance().setSamplingEnabled(enabled);
+        promise.resolve(null);
+    }
+
+    @ReactMethod
     public void addListener(String eventName) {
         // Required for RN built-in EventEmitter.
     }

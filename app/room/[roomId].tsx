@@ -47,11 +47,7 @@ import {
   drivingRouteStyleBadges,
   normalizeDrivingRouteStyle,
 } from "@/lib/drivingRouteStyle";
-import {
-  useLeadVehicleTracking,
-  useVehicleCountRound,
-  vehicleCountRoundEnabled,
-} from "@/features/leadVehicle";
+import { useVehicleCountRound, vehicleCountRoundEnabled } from "@/features/leadVehicle";
 import { useAuth } from "@/providers/AuthProvider";
 
 const TURN_ARROW_MAX_M = 50;
@@ -116,13 +112,6 @@ export default function RoomScreen() {
     riderId: user?.id,
     market: countRoundMarket,
     preview: true,
-  });
-
-  useLeadVehicleTracking({
-    enabled: !countRoundOn && isRider && !!effectiveSessionId,
-    rideId: roomId,
-    sessionId: effectiveSessionId ?? undefined,
-    riderId: user?.id,
   });
 
   // Own GPS replaces remote route-point polling for the rider.

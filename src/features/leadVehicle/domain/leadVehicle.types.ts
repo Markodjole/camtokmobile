@@ -31,6 +31,9 @@ export interface NormalizedBoundingBox {
 export interface VehicleDetection {
   detectionId?: string;
   vehicleType: SupportedVehicleType;
+  /** Raw detector class (car / motorcycle / bus / truck / bicycle) when known.
+   *  Used to prefer following motorcycles over cars. */
+  rawLabel?: string;
   confidence: number;
   boundingBox: NormalizedBoundingBox;
 }

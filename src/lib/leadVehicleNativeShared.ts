@@ -28,6 +28,7 @@ export function mapNativeDetections(
     (d, i) => ({
       detectionId: `n-${frameId}-${i}`,
       vehicleType: normalizeVehicleType(d.vehicleType),
+      rawLabel: d.vehicleType.toLowerCase(),
       confidence: d.confidence,
       boundingBox: {
         x: d.boundingBox.x,

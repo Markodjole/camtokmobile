@@ -1,9 +1,4 @@
-import {
-  boxArea,
-  boxBottomCenter,
-  boxCenter,
-  iou,
-} from "./leadVehicle.geometry";
+import { boxArea, boxCenter, iou } from "./leadVehicle.geometry";
 import type { NormalizedBoundingBox, VehicleDetection } from "./leadVehicle.types";
 
 /** Simple, reliable single-vehicle follow status shown to viewers. */
@@ -18,68 +13,101 @@ export interface LeadFollowResult {
   trackId: string;
   boundingBox: NormalizedBoundingBox;
   status: LeadFollowStatus;
+  /** Raw detector class of the followed vehicle (motorcycle / car / …). */
+  vehicleLabel: string;
   lateralPosition: "left" | "center" | "right";
   visibleDurationMs: number;
 }
 
+/** Emitted once when we overtake the vehicle we were following. */
+export interface LeadPassEvent {
+  trackId: string;
+  vehicleLabel: string;
+  timestampMs: number;
+}
+
 /** Keep at most this much box history for the size-trend (speed) estimate. */
-const HISTORY_MS = 1500;
+const HISTORY_MS = 2000;
 /** Compare current size to this far back to decide approaching / pulling away. */
 const TREND_LOOKBACK_MS = 700;
-/** Frames the lead may be unmatched before we declare it lost. */
-const MAX_MISSED = 4;
+/** Consecutive observations the lead may miss before we let it go. Kept short
+ *  so the square disappears promptly when the vehicle leaves the screen. */
+const MAX_MISSED = 2;
 /** Growth ratio over TREND_LOOKBACK_MS that counts as getting closer / further. */
 const APPROACH_RATIO = 1.15;
 const RECEDE_RATIO = 0.87;
-/** A lead must be at least this big to be a real, followable vehicle. */
-const MIN_LEAD_AREA = 0.004;
-/** EMA smoothing for the drawn box (reduce jitter). */
-const BOX_SMOOTHING = 0.45;
-/** When the lead is lost while big + low in frame, we overtook it. */
+/** EMA smoothing for the drawn box. High = snappy (follows the vehicle
+ *  tightly); low values made the box visibly lag behind the real vehicle. */
+const BOX_SMOOTHING = 0.7;
+/** Overtake heuristic: lead lost while big + low in frame = we passed it. */
 const PASS_AREA = 0.045;
 const PASS_BOTTOM_Y = 0.62;
-/** How long to keep showing the "passed" flash after overtaking. */
-const PASS_FLASH_MS = 1800;
+
+/**
+ * Acquisition gates. A vehicle only becomes the lead after being seen in
+ * CONFIRM_SIGHTINGS consecutive detector frames at roughly the same spot.
+ * One-frame false positives (posts, shadows, road texture the model briefly
+ * mistakes for a vehicle) never survive this, which is what previously caused
+ * random boxes appearing away from any real vehicle.
+ */
+const CONFIRM_SIGHTINGS = 2;
+const MIN_ACQUIRE_AREA = 0.005;
+const MIN_ACQUIRE_CONFIDENCE = 0.45;
+/** Only acquire roughly ahead of us — edge blobs are cross traffic. */
+const MIN_ACQUIRE_CENTER_X = 0.15;
+const MAX_ACQUIRE_CENTER_X = 0.85;
+/** Match radius (normalized center distance) between frames. */
+const MATCH_CENTER_DIST = 0.14;
 
 type CurrentLead = {
   trackId: string;
   box: NormalizedBoundingBox;
+  label: string;
   firstSeenMs: number;
   lastSeenMs: number;
   missed: number;
   history: { t: number; area: number }[];
 };
 
+type PendingLead = {
+  box: NormalizedBoundingBox;
+  sightings: number;
+};
+
 /**
- * Tracks a single "lead" vehicle — the one we're following ahead — instead of
- * every vehicle on screen. Picks the most central, nearest (largest) vehicle,
- * follows it across frames, and reports whether we're approaching, holding,
- * pulling away, or have passed it. Cheap: one target, no per-vehicle counting.
+ * Follows exactly one "lead" vehicle — the one ahead of us, moving with us.
+ * Once locked on it sticks to that vehicle until it is genuinely gone for
+ * MAX_MISSED frames, then confirms a new one. Nothing else: no counting, no
+ * multi-vehicle tracking, no pass flashes.
  */
 export class LeadVehicleFollower {
   private current: CurrentLead | null = null;
+  private pending: PendingLead | null = null;
   private idCounter = 0;
-  private passFlashUntilMs = 0;
-  private lastBox: NormalizedBoundingBox | null = null;
+  private pendingPassEvent: LeadPassEvent | null = null;
 
   reset(): void {
     this.current = null;
-    this.passFlashUntilMs = 0;
-    this.lastBox = null;
+    this.pending = null;
+    this.pendingPassEvent = null;
+  }
+
+  /** One-shot: returns the pass event since the last call, if any. */
+  takePassEvent(): LeadPassEvent | null {
+    const ev = this.pendingPassEvent;
+    this.pendingPassEvent = null;
+    return ev;
   }
 
   observe(
     detections: VehicleDetection[],
     now: number,
   ): LeadFollowResult | null {
-    const candidates = detections.filter(
-      (d) => boxArea(d.boundingBox) >= MIN_LEAD_AREA,
-    );
-
+    // Stick with the current lead as long as it's matchable.
     if (this.current) {
-      const match = this.matchCurrent(candidates);
+      const match = this.matchNear(this.current.box, detections);
       if (match) {
-        this.updateCurrent(match.boundingBox, now);
+        this.updateCurrent(match, now);
         return this.buildResult(now);
       }
       this.current.missed += 1;
@@ -87,58 +115,69 @@ export class LeadVehicleFollower {
         // Briefly hold the last box (occlusion / dropped frame).
         return this.buildResult(now, true);
       }
-      // Lost for good — did we pass it, or did it get away?
-      const passed = this.wasOvertaken();
-      this.current = null;
-      if (passed) {
-        this.passFlashUntilMs = now + PASS_FLASH_MS;
+      // Lost for good. If it vanished while big and low in frame, we passed it.
+      const area = boxArea(this.current.box);
+      const bottomY = this.current.box.y + this.current.box.height;
+      if (area >= PASS_AREA && bottomY >= PASS_BOTTOM_Y) {
+        this.pendingPassEvent = {
+          trackId: this.current.trackId,
+          vehicleLabel: this.current.label,
+          timestampMs: now,
+        };
       }
+      this.current = null;
     }
 
-    if (now < this.passFlashUntilMs && this.lastBox) {
-      return {
-        trackId: "passed",
-        boundingBox: this.lastBox,
-        status: "passed",
-        lateralPosition: "center",
-        visibleDurationMs: 0,
+    // No lead: confirm a candidate across consecutive frames before showing it.
+    const candidate = this.selectCandidate(detections);
+    if (!candidate) {
+      this.pending = null;
+      return null;
+    }
+    if (
+      this.pending &&
+      this.matchNear(this.pending.box, [candidate])
+    ) {
+      this.pending = {
+        box: candidate.boundingBox,
+        sightings: this.pending.sightings + 1,
       };
+    } else {
+      this.pending = { box: candidate.boundingBox, sightings: 1 };
     }
+    if (this.pending.sightings < CONFIRM_SIGHTINGS) return null;
 
-    // Acquire a new lead: the most central, nearest (largest) vehicle.
-    const lead = this.selectLead(candidates);
-    if (!lead) return null;
+    this.pending = null;
     this.idCounter += 1;
     this.current = {
       trackId: `lead_${this.idCounter}`,
-      box: lead.boundingBox,
+      box: candidate.boundingBox,
+      label: candidate.rawLabel ?? "vehicle",
       firstSeenMs: now,
       lastSeenMs: now,
       missed: 0,
-      history: [{ t: now, area: boxArea(lead.boundingBox) }],
+      history: [{ t: now, area: boxArea(candidate.boundingBox) }],
     };
-    this.lastBox = lead.boundingBox;
     return this.buildResult(now);
   }
 
-  private matchCurrent(
+  /** Best IoU match near a reference box, else nearest center within radius. */
+  private matchNear(
+    ref: NormalizedBoundingBox,
     candidates: VehicleDetection[],
   ): VehicleDetection | null {
-    const cur = this.current;
-    if (!cur) return null;
     let best: VehicleDetection | null = null;
     let bestIou = 0.1;
     for (const d of candidates) {
-      const overlap = iou(cur.box, d.boundingBox);
+      const overlap = iou(ref, d.boundingBox);
       if (overlap > bestIou) {
         bestIou = overlap;
         best = d;
       }
     }
     if (best) return best;
-    // Fall back to nearest center within a small radius.
-    const c = boxCenter(cur.box);
-    let bestDist = 0.14;
+    const c = boxCenter(ref);
+    let bestDist = MATCH_CENTER_DIST;
     for (const d of candidates) {
       const dc = boxCenter(d.boundingBox);
       const dist = Math.hypot(dc.x - c.x, dc.y - c.y);
@@ -150,21 +189,23 @@ export class LeadVehicleFollower {
     return best;
   }
 
-  private updateCurrent(box: NormalizedBoundingBox, now: number): void {
+  private updateCurrent(match: VehicleDetection, now: number): void {
     const cur = this.current;
     if (!cur) return;
-    // Smooth the drawn box to reduce jitter.
+    const box = match.boundingBox;
+    // Light smoothing to reduce jitter while staying tight on the vehicle.
     cur.box = {
       x: cur.box.x + (box.x - cur.box.x) * BOX_SMOOTHING,
       y: cur.box.y + (box.y - cur.box.y) * BOX_SMOOTHING,
       width: cur.box.width + (box.width - cur.box.width) * BOX_SMOOTHING,
       height: cur.box.height + (box.height - cur.box.height) * BOX_SMOOTHING,
     };
+    // Upgrade the label if the detector becomes surer of a motorcycle.
+    if (match.rawLabel === "motorcycle") cur.label = "motorcycle";
     cur.lastSeenMs = now;
     cur.missed = 0;
     cur.history.push({ t: now, area: boxArea(box) });
     cur.history = cur.history.filter((h) => now - h.t <= HISTORY_MS);
-    this.lastBox = cur.box;
   }
 
   private buildResult(now: number, occluded = false): LeadFollowResult {
@@ -177,6 +218,7 @@ export class LeadVehicleFollower {
       trackId: cur.trackId,
       boundingBox: cur.box,
       status,
+      vehicleLabel: cur.label,
       lateralPosition:
         center.x < 0.4 ? "left" : center.x > 0.6 ? "right" : "center",
       visibleDurationMs: now - cur.firstSeenMs,
@@ -198,21 +240,23 @@ export class LeadVehicleFollower {
     return "holding";
   }
 
-  private wasOvertaken(): boolean {
-    if (!this.lastBox) return false;
-    const area = boxArea(this.lastBox);
-    const bottom = boxBottomCenter(this.lastBox);
-    return area >= PASS_AREA && bottom.y >= PASS_BOTTOM_Y;
-  }
-
-  private selectLead(
-    candidates: VehicleDetection[],
+  /** Best vehicle that clears the acquisition gates. Motorcycles win over
+   *  everything else; among equals prefer larger (nearer) + more central. */
+  private selectCandidate(
+    detections: VehicleDetection[],
   ): VehicleDetection | null {
+    const eligible = detections.filter((d) => {
+      if (d.confidence < MIN_ACQUIRE_CONFIDENCE) return false;
+      if (boxArea(d.boundingBox) < MIN_ACQUIRE_AREA) return false;
+      const c = boxCenter(d.boundingBox);
+      return c.x >= MIN_ACQUIRE_CENTER_X && c.x <= MAX_ACQUIRE_CENTER_X;
+    });
+    const motorcycles = eligible.filter((d) => d.rawLabel === "motorcycle");
+    const pool = motorcycles.length > 0 ? motorcycles : eligible;
     let best: VehicleDetection | null = null;
     let bestScore = -Infinity;
-    for (const d of candidates) {
+    for (const d of pool) {
       const c = boxCenter(d.boundingBox);
-      // Prefer larger (nearer) and more central vehicles.
       const score = boxArea(d.boundingBox) - 0.6 * Math.abs(c.x - 0.5);
       if (score > bestScore) {
         bestScore = score;

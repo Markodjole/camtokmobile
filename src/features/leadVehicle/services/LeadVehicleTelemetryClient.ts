@@ -228,8 +228,13 @@ export class LeadVehicleTelemetryClient {
           body: mapped as unknown as Record<string, unknown>,
         },
       );
-    } catch {
-      // Soft-fail: engine/backend may not be deployed yet.
+    } catch (e) {
+      // Soft-fail so streaming never breaks, but log it — this used to be a
+      // silent catch that made telemetry failures invisible in device logs.
+      console.warn(
+        "[LeadVehicleTelemetryClient] send failed",
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 }
