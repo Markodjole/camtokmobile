@@ -30,9 +30,17 @@ export interface LeadPassEvent {
 const HISTORY_MS = 2000;
 /** Compare current size to this far back to decide approaching / pulling away. */
 const TREND_LOOKBACK_MS = 700;
-/** Consecutive observations the lead may miss before we let it go. Kept short
- *  so the square disappears promptly when the vehicle leaves the screen. */
-const MAX_MISSED = 2;
+/**
+ * Missed-frame policy. The detector only sees vehicles on ~70% of frames, so
+ * dropping identity after a couple of misses made the follower "switch"
+ * constantly — every dropout looked like a new vehicle. Instead:
+ *  - identity survives up to MAX_MISSED frames (~2s), re-matching with a
+ *    widening radius, so the same car keeps the same number through flicker;
+ *  - but the box is only *drawn* for the first RENDER_HOLD_MISSED misses, so
+ *    the square still disappears quickly when the vehicle is really gone.
+ */
+const MAX_MISSED = 6;
+const RENDER_HOLD_MISSED = 2;
 /** Growth ratio over TREND_LOOKBACK_MS that counts as getting closer / further. */
 const APPROACH_RATIO = 1.15;
 const RECEDE_RATIO = 0.87;
@@ -60,8 +68,11 @@ const MIN_ACQUIRE_CONFIDENCE = 0.45;
 /** Only acquire roughly ahead of us — edge blobs are cross traffic. */
 const MIN_ACQUIRE_CENTER_X = 0.15;
 const MAX_ACQUIRE_CENTER_X = 0.85;
-/** Match radius (normalized center distance) between frames. */
+/** Match radius (normalized center distance) between frames. Grows with each
+ *  missed frame — the vehicle keeps moving while the detector blinks. */
 const MATCH_CENTER_DIST = 0.14;
+const MATCH_DIST_PER_MISS = 0.05;
+const MATCH_DIST_MAX = 0.34;
 
 type CurrentLead = {
   trackId: string;
@@ -87,9 +98,18 @@ type PendingLead = {
 export class LeadVehicleFollower {
   private current: CurrentLead | null = null;
   private pending: PendingLead | null = null;
-  private idCounter = 0;
+  private lastDisplayId = 0;
   private pendingPassEvent: LeadPassEvent | null = null;
   private motoChallenger: PendingLead | null = null;
+
+  /** Visible two-digit vehicle number (10-99). A new number = a real switch
+   *  to another vehicle, so the viewer can see exactly when that happens. */
+  private nextDisplayId(): number {
+    let id = 10 + Math.floor(Math.random() * 90);
+    if (id === this.lastDisplayId) id = 10 + ((id - 9) % 90);
+    this.lastDisplayId = id;
+    return id;
+  }
 
   reset(): void {
     this.current = null;
@@ -116,15 +136,27 @@ export class LeadVehicleFollower {
       const moto = this.observeMotoChallenger(detections, now);
       if (moto) return moto;
 
-      const match = this.matchNear(this.current.box, detections);
+      const match = this.matchNear(
+        this.current.box,
+        detections,
+        Math.min(
+          MATCH_DIST_MAX,
+          MATCH_CENTER_DIST + this.current.missed * MATCH_DIST_PER_MISS,
+        ),
+      );
       if (match) {
         this.updateCurrent(match, now);
         return this.buildResult(now);
       }
       this.current.missed += 1;
-      if (this.current.missed <= MAX_MISSED) {
-        // Briefly hold the last box (occlusion / dropped frame).
+      if (this.current.missed <= RENDER_HOLD_MISSED) {
+        // Briefly hold the drawn box (occlusion / dropped frame).
         return this.buildResult(now, true);
+      }
+      if (this.current.missed <= MAX_MISSED) {
+        // Hide the box but keep the identity — if the detector re-finds this
+        // vehicle within the window it keeps its number (no fake "switch").
+        return null;
       }
       // Lost for good. If it vanished while big and low in frame, we passed it.
       const area = boxArea(this.current.box);
@@ -159,9 +191,8 @@ export class LeadVehicleFollower {
     if (this.pending.sightings < CONFIRM_SIGHTINGS) return null;
 
     this.pending = null;
-    this.idCounter += 1;
     this.current = {
-      trackId: `lead_${this.idCounter}`,
+      trackId: `lead_${this.nextDisplayId()}`,
       box: candidate.boundingBox,
       label: candidate.rawLabel ?? "vehicle",
       firstSeenMs: now,
@@ -207,9 +238,8 @@ export class LeadVehicleFollower {
     if (this.motoChallenger.sightings < MOTO_TAKEOVER_SIGHTINGS) return null;
 
     this.motoChallenger = null;
-    this.idCounter += 1;
     this.current = {
-      trackId: `lead_${this.idCounter}`,
+      trackId: `lead_${this.nextDisplayId()}`,
       box: moto.boundingBox,
       label: "motorcycle",
       firstSeenMs: now,
@@ -224,6 +254,7 @@ export class LeadVehicleFollower {
   private matchNear(
     ref: NormalizedBoundingBox,
     candidates: VehicleDetection[],
+    maxDist: number = MATCH_CENTER_DIST,
   ): VehicleDetection | null {
     let best: VehicleDetection | null = null;
     let bestIou = 0.1;
@@ -236,7 +267,7 @@ export class LeadVehicleFollower {
     }
     if (best) return best;
     const c = boxCenter(ref);
-    let bestDist = MATCH_CENTER_DIST;
+    let bestDist = maxDist;
     for (const d of candidates) {
       const dc = boxCenter(d.boundingBox);
       const dist = Math.hypot(dc.x - c.x, dc.y - c.y);
