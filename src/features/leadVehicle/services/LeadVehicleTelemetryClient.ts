@@ -10,7 +10,9 @@ import type { VehiclePassCounterSnapshot } from "../domain/leadVehicle.passCount
 
 export type LeadVehicleOverlayDetection = {
   trackId?: string;
-  vehicleType?: SupportedVehicleType;
+  /** Real detector class (motorcycle / car / bus / truck / …) so the viewer
+   *  can show WHICH vehicle is being followed — not just that one is. */
+  vehicleType?: SupportedVehicleType | string;
   confidence?: number;
   isLead?: boolean;
   /** Lead-follow status for the viewer label (approaching/holding/…). */

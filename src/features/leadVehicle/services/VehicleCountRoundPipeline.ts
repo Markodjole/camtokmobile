@@ -277,7 +277,7 @@ export class VehicleCountRoundPipeline {
     this.previewLead = lead
       ? {
           trackId: lead.trackId,
-          vehicleType: "vehicle",
+          vehicleType: lead.vehicleLabel,
           confidence: 1,
           isLead: true,
           status: lead.status,

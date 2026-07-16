@@ -293,7 +293,8 @@ export interface LeadVehicleTelemetryEvent {
       /** All visible vehicle boxes for viewer overlay (lead + others). */
       detections?: Array<{
         trackId?: string;
-        vehicleType?: SupportedVehicleType;
+        /** Raw class (motorcycle/car/…) so viewers see what is tracked. */
+        vehicleType?: SupportedVehicleType | string;
         confidence?: number;
         isLead?: boolean;
         status?: string;
