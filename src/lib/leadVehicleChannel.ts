@@ -19,6 +19,8 @@ export type LeadVehicleWireMessage = {
     /** Raw class: motorcycle / car / bus / truck / … */
     type: string;
     status: string;
+    /** "evaluating" (dashed blue) or "locked" (solid green). */
+    phase: string;
     x: number;
     y: number;
     w: number;

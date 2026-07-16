@@ -17,6 +17,8 @@ export type LeadVehicleOverlayDetection = {
   isLead?: boolean;
   /** Lead-follow status for the viewer label (approaching/holding/…). */
   status?: string;
+  /** Follow phase: "evaluating" (dashed blue) or "locked" (solid green). */
+  phase?: string;
   normalizedBoundingBox: NormalizedBoundingBox;
 };
 

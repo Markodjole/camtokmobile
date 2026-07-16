@@ -298,6 +298,8 @@ export interface LeadVehicleTelemetryEvent {
         confidence?: number;
         isLead?: boolean;
         status?: string;
+        /** "evaluating" (dashed blue) or "locked" (solid green). */
+        phase?: string;
         normalizedBoundingBox: NormalizedBoundingBox;
       }>;
       /** Vehicles currently visible on screen (ahead of rider). */

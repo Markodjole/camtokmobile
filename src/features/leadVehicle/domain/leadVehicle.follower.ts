@@ -9,10 +9,18 @@ export type LeadFollowStatus =
   | "pulling_away"
   | "passed";
 
+/**
+ * Follow phase: "evaluating" while we verify the vehicle keeps a stable
+ * distance (≈ same speed as us) — drawn as a dashed blue box; "locked" once
+ * the relation has been stable for LOCK_STABLE_MS — solid green box.
+ */
+export type LeadFollowPhase = "evaluating" | "locked";
+
 export interface LeadFollowResult {
   trackId: string;
   boundingBox: NormalizedBoundingBox;
   status: LeadFollowStatus;
+  phase: LeadFollowPhase;
   /** Raw detector class of the followed vehicle (motorcycle / car / …). */
   vehicleLabel: string;
   lateralPosition: "left" | "center" | "right";
@@ -50,6 +58,9 @@ const BOX_SMOOTHING = 0.7;
 /** Overtake heuristic: lead lost while big + low in frame = we passed it. */
 const PASS_AREA = 0.045;
 const PASS_BOTTOM_Y = 0.62;
+/** The relation (stable distance ≈ matching speed) must hold continuously
+ *  this long before the follow is "locked" and the box turns green. */
+const LOCK_STABLE_MS = 3000;
 
 /**
  * Acquisition gates. A vehicle only becomes the lead after being seen in
@@ -82,6 +93,10 @@ type CurrentLead = {
   lastSeenMs: number;
   missed: number;
   history: { t: number; area: number }[];
+  /** Start of the current stretch of stable distance; 0 = not stable. */
+  stableStartMs: number;
+  /** Once the relation held for LOCK_STABLE_MS the follow stays locked. */
+  locked: boolean;
 };
 
 type PendingLead = {
@@ -199,6 +214,8 @@ export class LeadVehicleFollower {
       lastSeenMs: now,
       missed: 0,
       history: [{ t: now, area: boxArea(candidate.boundingBox) }],
+      stableStartMs: 0,
+      locked: false,
     };
     return this.buildResult(now);
   }
@@ -246,6 +263,8 @@ export class LeadVehicleFollower {
       lastSeenMs: now,
       missed: 0,
       history: [{ t: now, area: boxArea(moto.boundingBox) }],
+      stableStartMs: 0,
+      locked: false,
     };
     return this.buildResult(now);
   }
@@ -303,11 +322,23 @@ export class LeadVehicleFollower {
     const status: LeadFollowStatus = occluded
       ? "holding"
       : this.trendStatus(now);
+    // Speed-match lock: distance must stay stable ("holding") continuously
+    // for LOCK_STABLE_MS before the follow is trusted (green). Occluded
+    // frames neither advance nor reset the clock.
+    if (!cur.locked && !occluded) {
+      if (status === "holding") {
+        if (cur.stableStartMs === 0) cur.stableStartMs = now;
+        if (now - cur.stableStartMs >= LOCK_STABLE_MS) cur.locked = true;
+      } else {
+        cur.stableStartMs = 0;
+      }
+    }
     const center = boxCenter(cur.box);
     return {
       trackId: cur.trackId,
       boundingBox: cur.box,
       status,
+      phase: cur.locked ? "locked" : "evaluating",
       vehicleLabel: cur.label,
       lateralPosition:
         center.x < 0.4 ? "left" : center.x > 0.6 ? "right" : "center",

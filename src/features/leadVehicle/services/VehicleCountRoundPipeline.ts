@@ -282,6 +282,7 @@ export class VehicleCountRoundPipeline {
           confidence: 1,
           isLead: true,
           status: lead.status,
+          phase: lead.phase,
           normalizedBoundingBox: lead.boundingBox,
         }
       : null;
@@ -305,6 +306,7 @@ export class VehicleCountRoundPipeline {
             id: lead.trackId,
             type: lead.vehicleLabel,
             status: lead.status,
+            phase: lead.phase,
             x: lead.boundingBox.x,
             y: lead.boundingBox.y,
             w: lead.boundingBox.width,
