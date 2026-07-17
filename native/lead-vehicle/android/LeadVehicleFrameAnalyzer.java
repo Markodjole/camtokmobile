@@ -177,7 +177,7 @@ public final class LeadVehicleFrameAnalyzer {
         busySinceMs = now;
         lastInferAtMs = now;
 
-        VideoFrame.Buffer buffer = frame.getBuffer();
+        final VideoFrame.Buffer buffer = frame.getBuffer();
         final int rotation = frame.getRotation();
         final long timestampMs = frame.getTimestampNs() / 1_000_000L;
         final boolean includeJpeg =
@@ -186,39 +186,46 @@ public final class LeadVehicleFrameAnalyzer {
             lastJpegAtMs = now;
         }
 
-        // Analyze exactly the frame that is streamed/previewed (top-cropped by
-        // TopCropVideoFrameProcessor) so detections align 1:1 with what the rider
-        // and viewers see, and counts reflect vehicles actually in the stream.
-        VideoFrame.I420Buffer i420;
-        try {
-            i420 = buffer.toI420();
-        } catch (Exception e) {
-            busy.set(false);
-            busySinceMs = 0;
-            return;
-        }
-        if (i420 == null) {
-            busy.set(false);
-            busySinceMs = 0;
-            return;
-        }
-
-        final int width = i420.getWidth();
-        final int height = i420.getHeight();
-        final ByteBuffer y = copyPlane(i420.getDataY(), i420.getStrideY(), width, height);
-        final ByteBuffer u =
-                copyPlane(i420.getDataU(), i420.getStrideU(), (width + 1) / 2, (height + 1) / 2);
-        final ByteBuffer v =
-                copyPlane(i420.getDataV(), i420.getStrideV(), (width + 1) / 2, (height + 1) / 2);
-        i420.release();
-
+        // CRITICAL: do NOT convert/copy on this (capture) thread. toI420 of a
+        // 1080p frame + ~3MB of plane copies stalled the capture pipeline 4x/s,
+        // which starved the encoder (fps bouncing 10↔30 = glitchy stream even
+        // with limited=none). Retain the buffer (cheap refcount) and do all the
+        // heavy work on the inference thread.
+        buffer.retain();
         try {
             executor.execute(
                     () -> {
+                        VideoFrame.I420Buffer i420 = null;
                         try {
-                            runInference(y, u, v, width, height, rotation, timestampMs, includeJpeg);
+                            try {
+                                i420 = buffer.toI420();
+                            } finally {
+                                buffer.release();
+                            }
+                            if (i420 == null) return;
+                            final int width = i420.getWidth();
+                            final int height = i420.getHeight();
+                            ensurePlaneBuffers(width, height);
+                            copyPlaneInto(planeY, i420.getDataY(), i420.getStrideY(), width, height);
+                            copyPlaneInto(
+                                    planeU,
+                                    i420.getDataU(),
+                                    i420.getStrideU(),
+                                    (width + 1) / 2,
+                                    (height + 1) / 2);
+                            copyPlaneInto(
+                                    planeV,
+                                    i420.getDataV(),
+                                    i420.getStrideV(),
+                                    (width + 1) / 2,
+                                    (height + 1) / 2);
+                            i420.release();
+                            i420 = null;
+                            runInference(
+                                    planeY, planeU, planeV, width, height, rotation, timestampMs, includeJpeg);
                         } catch (Exception e) {
                             Log.w(TAG, "Inference failed", e);
+                            if (i420 != null) i420.release();
                         } finally {
                             busy.set(false);
                             busySinceMs = 0;
@@ -226,9 +233,41 @@ public final class LeadVehicleFrameAnalyzer {
                     });
         } catch (Exception e) {
             Log.w(TAG, "Failed to schedule inference", e);
+            buffer.release();
             busy.set(false);
             busySinceMs = 0;
         }
+    }
+
+    // Reused plane buffers — allocating ~3MB per analyzed frame caused GC/alloc
+    // churn on the hot path. Single-threaded executor, so reuse is safe.
+    private ByteBuffer planeY;
+    private ByteBuffer planeU;
+    private ByteBuffer planeV;
+    private int planeW = 0;
+    private int planeH = 0;
+
+    private void ensurePlaneBuffers(int width, int height) {
+        if (planeY != null && planeW == width && planeH == height) return;
+        planeY = ByteBuffer.allocateDirect(width * height);
+        int cw = (width + 1) / 2;
+        int chh = (height + 1) / 2;
+        planeU = ByteBuffer.allocateDirect(cw * chh);
+        planeV = ByteBuffer.allocateDirect(cw * chh);
+        planeW = width;
+        planeH = height;
+    }
+
+    private static void copyPlaneInto(
+            ByteBuffer dst, ByteBuffer src, int stride, int width, int height) {
+        dst.clear();
+        byte[] row = new byte[width];
+        for (int rowIdx = 0; rowIdx < height; rowIdx++) {
+            src.position(rowIdx * stride);
+            src.get(row, 0, width);
+            dst.put(row);
+        }
+        dst.rewind();
     }
 
     private void runInference(
@@ -511,18 +550,6 @@ public final class LeadVehicleFrameAnalyzer {
             }
         }
         inputBuffer.rewind();
-    }
-
-    private static ByteBuffer copyPlane(ByteBuffer src, int stride, int width, int height) {
-        ByteBuffer out = ByteBuffer.allocateDirect(width * height);
-        byte[] row = new byte[width];
-        for (int rowIdx = 0; rowIdx < height; rowIdx++) {
-            src.position(rowIdx * stride);
-            src.get(row, 0, width);
-            out.put(row);
-        }
-        out.rewind();
-        return out;
     }
 
     private static float clamp01(float v) {
