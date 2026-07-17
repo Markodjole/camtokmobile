@@ -33,6 +33,56 @@ try {
   rtcRuntime = null;
 }
 
+// ─── Outbound stats logging ──────────────────────────────────────────────────
+// Answers "what are we ACTUALLY sending" (resolution / fps / bitrate / codec)
+// in logcat — enable with EXPO_PUBLIC_P2P_STATS=1. Logs via console.warn so it
+// shows in release builds too.
+
+let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+function startP2pStatsLogging(pc: RTCPeerConnection): void {
+  const raw = process.env.EXPO_PUBLIC_P2P_STATS;
+  if (raw !== "1" && raw !== "true") return;
+  if (statsTimer) clearInterval(statsTimer);
+  let lastBytes = 0;
+  let lastAt = Date.now();
+  statsTimer = setInterval(async () => {
+    if (!pc || (pc as any).signalingState === "closed") {
+      if (statsTimer) clearInterval(statsTimer);
+      statsTimer = null;
+      return;
+    }
+    try {
+      const stats: Map<string, any> = await (pc as any).getStats();
+      let out: any = null;
+      const byId: Record<string, any> = {};
+      stats.forEach((v: any, k: string) => {
+        byId[k] = v;
+        if (v.type === "outbound-rtp" && (v.kind ?? v.mediaType) === "video") {
+          out = v;
+        }
+      });
+      if (!out) return;
+      const now = Date.now();
+      const bytes = out.bytesSent ?? 0;
+      const kbps =
+        lastBytes > 0
+          ? Math.round(((bytes - lastBytes) * 8) / Math.max(1, now - lastAt))
+          : 0;
+      lastBytes = bytes;
+      lastAt = now;
+      const codec = byId[out.codecId]?.mimeType ?? "?";
+      console.warn(
+        `[p2p-stats] ${out.frameWidth ?? "?"}x${out.frameHeight ?? "?"}` +
+          ` fps=${out.framesPerSecond ?? "?"} ${kbps}kbps codec=${codec}` +
+          ` limited=${out.qualityLimitationReason ?? "?"}`,
+      );
+    } catch {
+      // stats are best-effort
+    }
+  }, 10_000);
+}
+
 // ─── ICE config ───────────────────────────────────────────────────────────────
 
 function buildIceServers(): RTCIceServer[] {
@@ -210,8 +260,25 @@ export async function startBroadcasterP2p(
         if (sender?.setParameters) {
           const params = sender.getParameters() ?? {};
           params.degradationPreference = "maintain-resolution";
+          // libwebrtc's default bitrate cap (~2 Mbps) makes 1080p traffic
+          // video mush — every frame is full of new detail. The web
+          // broadcaster already sets 6 Mbps; match it here (mobile uplink
+          // allowing — WebRTC still adapts downward when the network can't).
+          if (Array.isArray(params.encodings) && params.encodings[0]) {
+            params.encodings[0].maxBitrate = 6_000_000;
+          } else {
+            params.encodings = [{ maxBitrate: 6_000_000 }];
+          }
           await sender.setParameters(params);
         }
+        // Traffic scenes are motion-dominated; hint the encoder accordingly.
+        try {
+          const track = sender?.track as { contentHint?: string } | undefined;
+          if (track && "contentHint" in track) track.contentHint = "motion";
+        } catch {
+          // optional
+        }
+        startP2pStatsLogging(localPc);
       } catch {
         // Older webrtc builds without degradationPreference — non-fatal.
       }
