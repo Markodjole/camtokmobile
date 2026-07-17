@@ -18,6 +18,7 @@ type LeadVehicleNativeModule = {
   }>;
   setEnabled(enabled: boolean): Promise<void>;
   setSamplingEnabled(enabled: boolean): Promise<void>;
+  setHighPerfNetwork(enabled: boolean): Promise<void>;
   addListener?: (eventName: string) => void;
   removeListeners?: (count: number) => void;
 };
@@ -69,6 +70,16 @@ export async function leadVehicleNativeSetSamplingEnabled(
   if (!Native) return;
   try {
     await Native.setSamplingEnabled(enabled);
+  } catch {
+    // Older installed build without this method — safe to ignore.
+  }
+}
+
+/** Hold/release the low-latency WiFi + CPU locks while broadcasting. */
+export async function setHighPerfNetwork(enabled: boolean): Promise<void> {
+  if (!Native) return;
+  try {
+    await Native.setHighPerfNetwork(enabled);
   } catch {
     // Older installed build without this method — safe to ignore.
   }

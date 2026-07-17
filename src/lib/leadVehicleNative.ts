@@ -36,6 +36,10 @@ export async function leadVehicleNativeSetSamplingEnabled(
   // no-op on web
 }
 
+export async function setHighPerfNetwork(_enabled: boolean): Promise<void> {
+  // no-op on web
+}
+
 export function subscribeLeadVehicleDetections(
   _onPayload: (payload: import("./leadVehicleNativeShared").NativeDetectionPayload) => void,
 ): () => void {

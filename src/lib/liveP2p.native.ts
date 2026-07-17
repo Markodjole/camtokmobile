@@ -11,6 +11,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabase } from "./supabase";
 import { env } from "./env";
 import { registerLeadVehicleChannel } from "./leadVehicleChannel";
+import { setHighPerfNetwork } from "./leadVehicleNative";
 
 type MediaStream = {
   getTracks: () => Array<{ stop?: () => void }>;
@@ -501,6 +502,11 @@ export async function startBroadcasterP2p(
   await waitSubscribed(ch);
   void sendOffer();
 
+  // Hold the low-latency WiFi + CPU locks for the whole broadcast. Vendor
+  // power management otherwise batches transmissions, which real-time video
+  // reads as periodic delay spikes → bitrate collapse (measured on HyperOS).
+  void setHighPerfNetwork(true);
+
   const watchdog = setInterval(() => {
     if (cleaned || isNegotiating) return;
     if (!pc) {
@@ -523,6 +529,7 @@ export async function startBroadcasterP2p(
     closePc();
     vcBuf.clear();
     lastOfferUfrag = null;
+    void setHighPerfNetwork(false);
   };
 }
 

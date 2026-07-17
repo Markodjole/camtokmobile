@@ -1,5 +1,10 @@
 package com.camtok.mobile.leadvehicle;
 
+import android.content.Context;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.PowerManager;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -34,6 +39,12 @@ public class LeadVehicleModule extends ReactContextBaseJavaModule {
     public void invalidate() {
         LeadVehicleEmitter.detach(reactContext);
         LeadVehicleFrameAnalyzer.getInstance().setEnabled(false);
+        try {
+            if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Exception ignored) {
+            // releasing best-effort on teardown
+        }
         super.invalidate();
     }
 
@@ -73,6 +84,56 @@ public class LeadVehicleModule extends ReactContextBaseJavaModule {
     public void setSamplingEnabled(boolean enabled, Promise promise) {
         LeadVehicleFrameAnalyzer.getInstance().setSamplingEnabled(enabled);
         promise.resolve(null);
+    }
+
+    private WifiManager.WifiLock wifiLock;
+    private PowerManager.WakeLock wakeLock;
+
+    /**
+     * Hold high-performance network + CPU locks while broadcasting. Vendor
+     * power management (HyperOS etc.) batches WiFi transmissions to save
+     * power, which real-time video reads as periodic 100-200ms delay spikes
+     * and collapses the bitrate — even on flagship hardware. A foreground
+     * streaming app is expected to hold these locks; no user settings needed.
+     */
+    @ReactMethod
+    public void setHighPerfNetwork(boolean enabled, Promise promise) {
+        try {
+            if (enabled) {
+                if (wifiLock == null) {
+                    WifiManager wm =
+                            (WifiManager)
+                                    reactContext
+                                            .getApplicationContext()
+                                            .getSystemService(Context.WIFI_SERVICE);
+                    int mode =
+                            Build.VERSION.SDK_INT >= 29
+                                    ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                                    : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+                    wifiLock = wm.createWifiLock(mode, "camtok:broadcast");
+                    wifiLock.setReferenceCounted(false);
+                }
+                wifiLock.acquire();
+                if (wakeLock == null) {
+                    PowerManager pm =
+                            (PowerManager)
+                                    reactContext
+                                            .getApplicationContext()
+                                            .getSystemService(Context.POWER_SERVICE);
+                    wakeLock =
+                            pm.newWakeLock(
+                                    PowerManager.PARTIAL_WAKE_LOCK, "camtok:broadcast");
+                    wakeLock.setReferenceCounted(false);
+                }
+                wakeLock.acquire();
+            } else {
+                if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+                if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+            }
+            promise.resolve(null);
+        } catch (Exception e) {
+            promise.reject("E_NET_LOCK", e.getMessage());
+        }
     }
 
     @ReactMethod
