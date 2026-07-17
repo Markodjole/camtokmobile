@@ -250,16 +250,18 @@ export async function startBroadcasterP2p(
       } catch {
         // Data channel is an enhancement; video must not depend on it.
       }
-      // Under CPU pressure WebRTC's default is to collapse resolution (e.g.
-      // 1920x1080 → 640x352 within ~20s of streaming while detection runs).
-      // Prefer dropping framerate and keeping the picture sharp.
+      // "balanced": on sustained thermal throttling (43°C+ measured on the
+      // budget test device) the encoder must be allowed to trade some
+      // resolution for framerate — pinning 1080p ("maintain-resolution") made
+      // fps decay 15→2 while the picture stayed sharp-but-frozen. A smooth
+      // 720p is far better viewing than a 1080p slideshow.
       try {
         const sender = (localPc as any)
           .getSenders?.()
           .find((s: any) => s?.track?.kind === "video");
         if (sender?.setParameters) {
           const params = sender.getParameters() ?? {};
-          params.degradationPreference = "maintain-resolution";
+          params.degradationPreference = "balanced";
           // libwebrtc's default bitrate cap (~2 Mbps) makes 1080p traffic
           // video mush — every frame is full of new detail. The web
           // broadcaster already sets 6 Mbps; match it here (mobile uplink

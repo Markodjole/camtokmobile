@@ -48,11 +48,11 @@ public final class LeadVehicleFrameAnalyzer {
     private static final float MIN_SCORE = 0.30f;
     /** Greedy NMS — one box per physical object. */
     private static final float NMS_IOU = 0.45f;
-    /** Throttled to leave CPU for the live video encoder — running inference
-     *  flat-out starved the encoder and WebRTC dropped the stream resolution.
-     *  ~4 fps keeps the box tight on the lead vehicle; frame prep is
-     *  nearest-neighbor (cheap) so the encoder still gets its cores. */
-    private static final long MIN_INTERVAL_MS = 250L;
+    /** Throttled to leave CPU/thermal headroom for the live video encoder —
+     *  sustained inference heat throttled the whole SoC (43°C battery) and the
+     *  capture pipeline decayed to a slideshow. ~2 fps detection is enough for
+     *  the single-lead follower (its box smoothing/hold bridges the gaps). */
+    private static final long MIN_INTERVAL_MS = 500L;
     /** Analysis frames are GPU-downscaled to this max width before CPU readback. */
     private static final int ANALYZE_MAX_DIM = 640;
     /** JPEG samples for server refine (~2.5 FPS). */
