@@ -53,6 +53,8 @@ public final class LeadVehicleFrameAnalyzer {
      *  ~4 fps keeps the box tight on the lead vehicle; frame prep is
      *  nearest-neighbor (cheap) so the encoder still gets its cores. */
     private static final long MIN_INTERVAL_MS = 250L;
+    /** Analysis frames are GPU-downscaled to this max width before CPU readback. */
+    private static final int ANALYZE_MAX_DIM = 640;
     /** JPEG samples for server refine (~2.5 FPS). */
     private static final long JPEG_SAMPLE_INTERVAL_MS = 400L;
     private static final int JPEG_QUALITY = 65;
@@ -197,8 +199,28 @@ public final class LeadVehicleFrameAnalyzer {
                     () -> {
                         VideoFrame.I420Buffer i420 = null;
                         try {
+                            // Downscale ON THE GPU before toI420: reading back a
+                            // full 1920x1072 texture (glReadPixels) runs on the
+                            // camera's GL thread and stalls capture — the source
+                            // of fps sinking 29→8 over a minute. A ~640px frame
+                            // is a 9x smaller readback, and the detector's 448px
+                            // input loses nothing.
                             try {
-                                i420 = buffer.toI420();
+                                final int srcW = buffer.getWidth();
+                                final int srcH = buffer.getHeight();
+                                if (srcW > ANALYZE_MAX_DIM) {
+                                    final int tw = ANALYZE_MAX_DIM;
+                                    final int th = Math.max(2, (srcH * ANALYZE_MAX_DIM / srcW) & ~1);
+                                    VideoFrame.Buffer scaled =
+                                            buffer.cropAndScale(0, 0, srcW, srcH, tw, th);
+                                    try {
+                                        i420 = scaled.toI420();
+                                    } finally {
+                                        scaled.release();
+                                    }
+                                } else {
+                                    i420 = buffer.toI420();
+                                }
                             } finally {
                                 buffer.release();
                             }

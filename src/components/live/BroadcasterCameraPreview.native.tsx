@@ -121,6 +121,10 @@ function WebRtcPreview({
           facingMode: facing === "front" ? "user" : "environment",
           width: { ideal: 1920 },
           height: { ideal: 1080 },
+          // Without an explicit rate the camera may settle into a low-fps
+          // auto-exposure mode (especially indoors), which viewers see as
+          // frame-pause-frame even when the network is fine.
+          frameRate: { ideal: 30 },
         };
         const videoConstraints =
           useWide && facing === "back"
