@@ -117,10 +117,14 @@ function WebRtcPreview({
     let current: MediaStream | null = null;
     const start = async () => {
       try {
+        // Env-tunable capture size: weak devices (budget WiFi radio / SoC)
+        // stream far better at a steady 720p than oscillating around 1080p.
+        const capW = parseInt(process.env.EXPO_PUBLIC_CAPTURE_WIDTH ?? "", 10);
+        const capH = parseInt(process.env.EXPO_PUBLIC_CAPTURE_HEIGHT ?? "", 10);
         const baseVideo: Record<string, unknown> = {
           facingMode: facing === "front" ? "user" : "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: Number.isFinite(capW) && capW > 0 ? capW : 1920 },
+          height: { ideal: Number.isFinite(capH) && capH > 0 ? capH : 1080 },
           // Without an explicit rate the camera may settle into a low-fps
           // auto-exposure mode (especially indoors), which viewers see as
           // frame-pause-frame even when the network is fine.

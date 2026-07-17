@@ -333,15 +333,21 @@ export async function startBroadcasterP2p(
           // video mush — every frame is full of new detail. The web
           // broadcaster already sets 6 Mbps; match it here (mobile uplink
           // allowing — WebRTC still adapts downward when the network can't).
-          // Floor + ceiling. The floor matters as much as the ceiling: the
-          // delay-based estimator panics on sender-side pacing jitter (hot
-          // phone) and slashed a CLEAN path (viewer measured lost=0 drop=0)
-          // down to ~300 kbps / 480x256. Don't let it dive below watchable.
+          // Ceiling is env-tunable: on weak radios a lower cap (e.g. 3000)
+          // keeps the delay-based estimator stable instead of oscillating
+          // between bursts and collapses. Floor kept as a best-effort hint
+          // (newer libwebrtc ignores it, but it's harmless).
+          const kbpsRaw = parseInt(
+            process.env.EXPO_PUBLIC_MAX_VIDEO_KBPS ?? "",
+            10,
+          );
+          const maxBitrate =
+            (Number.isFinite(kbpsRaw) && kbpsRaw > 0 ? kbpsRaw : 6000) * 1000;
           if (Array.isArray(params.encodings) && params.encodings[0]) {
-            params.encodings[0].maxBitrate = 6_000_000;
+            params.encodings[0].maxBitrate = maxBitrate;
             params.encodings[0].minBitrate = 1_200_000;
           } else {
-            params.encodings = [{ maxBitrate: 6_000_000, minBitrate: 1_200_000 }];
+            params.encodings = [{ maxBitrate, minBitrate: 1_200_000 }];
           }
           await sender.setParameters(params);
         }
