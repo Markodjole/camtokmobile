@@ -132,7 +132,15 @@ function mungeVideoBitrates(sdp: string): string {
       const l = lines[i]!;
       if (l.startsWith("m=")) inVideo = l.startsWith("m=video");
       if (!inVideo) continue;
-      if (l.startsWith("a=fmtp:") && !l.includes("x-google-min-bitrate")) {
+      // Only real encoder codecs: rtx (apt=...), red and ulpfec fmtp lines
+      // must stay untouched — appending there makes Chrome reject the offer
+      // and the viewer never answers (no video at all).
+      if (
+        l.startsWith("a=fmtp:") &&
+        !l.includes("x-google-min-bitrate") &&
+        !l.includes("apt=") &&
+        l.includes("profile-level-id")
+      ) {
         lines[i] = `${l};x-google-min-bitrate=1200;x-google-start-bitrate=2500;x-google-max-bitrate=6000`;
       }
     }
