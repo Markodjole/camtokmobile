@@ -117,6 +117,31 @@ function startP2pStatsLogging(pc: RTCPeerConnection): void {
   }, 10_000);
 }
 
+// ─── SDP bitrate floor ───────────────────────────────────────────────────────
+// x-google-{min,start}-bitrate on the video codec fmtp lines: keeps libwebrtc's
+// delay-based estimator from slashing a clean path to sub-500kbps when the hot
+// phone's own pacing jitter looks like congestion. Works alongside (and even
+// when the build ignores) RTCRtpEncodingParameters.minBitrate.
+
+function mungeVideoBitrates(sdp: string): string {
+  if (!sdp) return sdp;
+  try {
+    const lines = sdp.split("\r\n");
+    let inVideo = false;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (l.startsWith("m=")) inVideo = l.startsWith("m=video");
+      if (!inVideo) continue;
+      if (l.startsWith("a=fmtp:") && !l.includes("x-google-min-bitrate")) {
+        lines[i] = `${l};x-google-min-bitrate=1200;x-google-start-bitrate=2500;x-google-max-bitrate=6000`;
+      }
+    }
+    return lines.join("\r\n");
+  } catch {
+    return sdp;
+  }
+}
+
 // ─── ICE config ───────────────────────────────────────────────────────────────
 
 function buildIceServers(): RTCIceServer[] {
@@ -300,10 +325,15 @@ export async function startBroadcasterP2p(
           // video mush — every frame is full of new detail. The web
           // broadcaster already sets 6 Mbps; match it here (mobile uplink
           // allowing — WebRTC still adapts downward when the network can't).
+          // Floor + ceiling. The floor matters as much as the ceiling: the
+          // delay-based estimator panics on sender-side pacing jitter (hot
+          // phone) and slashed a CLEAN path (viewer measured lost=0 drop=0)
+          // down to ~300 kbps / 480x256. Don't let it dive below watchable.
           if (Array.isArray(params.encodings) && params.encodings[0]) {
             params.encodings[0].maxBitrate = 6_000_000;
+            params.encodings[0].minBitrate = 1_200_000;
           } else {
-            params.encodings = [{ maxBitrate: 6_000_000 }];
+            params.encodings = [{ maxBitrate: 6_000_000, minBitrate: 1_200_000 }];
           }
           await sender.setParameters(params);
         }
@@ -350,6 +380,7 @@ export async function startBroadcasterP2p(
       };
       lastOfferUfrag = ug;
       try {
+        (offer as any).sdp = mungeVideoBitrates((offer as any).sdp ?? "");
         await localPc.setLocalDescription(offer);
       } catch (e) {
         if ((localPc.signalingState as string) !== "closed") {
