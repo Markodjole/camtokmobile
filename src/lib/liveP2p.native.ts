@@ -72,10 +72,44 @@ function startP2pStatsLogging(pc: RTCPeerConnection): void {
       lastBytes = bytes;
       lastAt = now;
       const codec = byId[out.codecId]?.mimeType ?? "?";
+      // Connection path + bandwidth estimate: distinguishes "direct P2P but
+      // weak network" from "everything is squeezing through the TURN relay".
+      let path = "?";
+      let bwe = "?";
+      let rtt = "?";
+      try {
+        let pair: any = null;
+        stats.forEach((v: any) => {
+          if (v.type === "transport" && v.selectedCandidatePairId) {
+            pair = byId[v.selectedCandidatePairId] ?? pair;
+          }
+        });
+        if (!pair) {
+          stats.forEach((v: any) => {
+            if (v.type === "candidate-pair" && v.nominated && v.state === "succeeded") {
+              pair = v;
+            }
+          });
+        }
+        if (pair) {
+          const local = byId[pair.localCandidateId];
+          const remote = byId[pair.remoteCandidateId];
+          path = `${local?.candidateType ?? "?"}->${remote?.candidateType ?? "?"}`;
+          if (typeof pair.availableOutgoingBitrate === "number") {
+            bwe = `${Math.round(pair.availableOutgoingBitrate / 1000)}kbps`;
+          }
+          if (typeof pair.currentRoundTripTime === "number") {
+            rtt = `${Math.round(pair.currentRoundTripTime * 1000)}ms`;
+          }
+        }
+      } catch {
+        // best-effort
+      }
       console.warn(
         `[p2p-stats] ${out.frameWidth ?? "?"}x${out.frameHeight ?? "?"}` +
           ` fps=${out.framesPerSecond ?? "?"} ${kbps}kbps codec=${codec}` +
-          ` limited=${out.qualityLimitationReason ?? "?"}`,
+          ` limited=${out.qualityLimitationReason ?? "?"}` +
+          ` path=${path} bwe=${bwe} rtt=${rtt}`,
       );
     } catch {
       // stats are best-effort
